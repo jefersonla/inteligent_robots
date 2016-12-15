@@ -1,3 +1,13 @@
+/*
+  Armadillomon
+  Armadillomon is a base robot.
+
+  This code example show a base robot controlled using an infrared controller.
+
+  modified 15 Dec 2016
+  by Jeferson Lima and Andressa Andrade
+ */
+
 #include <IRremote.h> 
 
 /* Receiver pin */

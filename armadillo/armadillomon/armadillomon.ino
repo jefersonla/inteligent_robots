@@ -64,10 +64,10 @@
 #define acelerateMotors(motor_speed) do { acelerateMotor(MOTOR_RIGHT, motor_speed); acelerateMotor(MOTOR_LEFT, motor_speed); } while(false)
 
 /* Turn Forward a given motor */
-#define turnForwardMotor(motor_num) changeMotorState(motor_num, LOW, HIGH)
+#define turnForwardMotor(motor_num) changeMotorState(motor_num, HIGH, LOW)
 
 /* Turn Backward a given motor */
-#define turnBackwardMotor(motor_num) changeMotorState(motor_num, HIGH, LOW)
+#define turnBackwardMotor(motor_num) changeMotorState(motor_num, LOW, HIGH)
 
 /* Brake a given motor */
 #define brakeMotor(motor_num) changeMotorState(motor_num, HIGH, HIGH)
@@ -87,6 +87,18 @@
 /* Step Left */
 #define stepLeft()     do { acelerateMotors(LOW_SPEED);    brakeMotor(MOTOR_LEFT);  turnForwardMotor(MOTOR_RIGHT); } while(false)
 
+/* Log Utilities */
+
+/* Start of a log */
+#define LOG_LINE_START "[log] >> "
+
+/* Print Log */
+#define printLog(MSG) Serial.print(F(LOG_LINE_START MSG))
+#define printLogn(MSG) printLog(MSG "\n")
+
+/* Print Progmem */
+#define printMem(MSG) Serial.println(F(MSG))
+
 /* IR Receiver */
 IRrecv ir_receiver(RECEIVER_PIN);
 
@@ -96,12 +108,16 @@ decode_results ir_result;
 /* Button State */
 long button_state;
 
+/* ::::::::::::::::::: Configure the robot ::::::::::::::::::: */
+
 void setup(){
   /* Initialize serial communication */
-  Serial.begin(9600);
+  Serial.begin(38200);
 
   /* Print Hello Message */
-  Serial.println("Hi, I'm Armadillomon :) !");
+  printMem( "...::: Hi, I'm Armadillomon :) ! :::...\n"
+            "By Jeferson Lima & Andressa Andrade\n"
+            "Starting System...\n" );
   
   /* Configure all motors related pins as output */
   pinMode(IN1_MOTOR1, OUTPUT);
@@ -119,39 +135,67 @@ void setup(){
 
   /* Set motor default state */
   brake();
+
+  /* Print end of setup */
+  printMem("System Started Successfully!\n");
 }
 
+/* ::::::::::::::::::: Execute System code ::::::::::::::::::: */
+
 void loop(){
+  
+  /* Read IR Signal */
+  readIRSignal();
+  
+}
+
+/* :::::::::::::::::::       Helpers       ::::::::::::::::::: */
+
+/* Read Ir signal */
+void readIRSignal(){
+
   /* Verify if there are Ir signal */
   if(ir_receiver.decode(&ir_result)){
 
     /* Get the button pressed */
     button_state = ir_result.value;
 
-    /* Check the command and change the direction state */
-    switch(button_state){
-      case UP_BUTTON:
-        turnForward();
-        break;
-      case BOTTOM_BUTTON:
-        turnBackward();
-        break;
-      case LEFT_BUTTON:
-        stepLeft();
-        break;
-      case RIGHT_BUTTON:
-        stepRight();
-        break;
-      case BRAKE_BUTTON:
-        brake();
-        break;
-      default:
-        Serial.print("INVALID BUTTON!\nButton Pressed: ");
-        Serial.println(button_state);
-    }
+    /* Execut the input command */
+    executeCommand(button_state);
 
     /* Flush the ir receiver buffer */
     ir_receiver.resume();
+  }
+}
+
+/* Change Motor State */
+void executeCommand(int motor_command){
+  
+  /* Check the command and change the direction state */
+  switch(motor_command){
+    case UP_BUTTON:
+      turnForward();
+      printLogn("Pressed UP");
+      break;
+    case BOTTOM_BUTTON:
+      turnBackward();
+      printLogn("Pressed DOWN");
+      break;
+    case LEFT_BUTTON:
+      stepLeft();
+      printLogn("Pressed LEFT");
+      break;
+    case RIGHT_BUTTON:
+      stepRight();
+      printLogn("Pressed RIGHT");
+      break;
+    case BRAKE_BUTTON:
+      brake();
+      printLogn("Pressed BRAKE");
+      break;
+    default:
+      printLogn("INVALID COMMAND!\nButton Pressed: ");
+      Serial.println(motor_command);
   }
 }
 

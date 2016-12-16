@@ -9,6 +9,7 @@
  */
 
 #include <IRremote.h> 
+#include <Ultrasonic.h>
 
 /* Receiver pin */
 #define RECEIVER_PIN 8
@@ -28,6 +29,11 @@
 /* Speed of each motor */
 #define SPE_MOTOR1 9
 #define SPE_MOTOR2 10
+
+/* Define Ultrasonics's pin */
+#define TRIGGER_PIN 16
+#define RECHO_PIN   15
+#define LECHO_PIN   14 
 
 /* Command buttons */
 
@@ -108,6 +114,17 @@ decode_results ir_result;
 /* Button State */
 long button_state;
 
+/* Ultrasonic Sensors*/
+Ultrasonic ultrasonic_left(TRIGGER_PIN, LECHO_PIN);
+Ultrasonic ultrasonic_right(TRIGGER_PIN, RECHO_PIN);
+
+/* Ultrassonic trigger execution time */
+long ultrassonic_timing;
+
+/* Ultrassonic distance read */
+float ultrassonic_distance_left;
+float ultrassonic_distance_right;
+
 /* ::::::::::::::::::: Configure the robot ::::::::::::::::::: */
 
 void setup(){
@@ -146,10 +163,42 @@ void loop(){
   
   /* Read IR Signal */
   readIRSignal();
+
+  /* Check obstacles */
+  //checkObstacles();
   
+  /* Synchronize motors */
+  syncMotors();
 }
 
 /* :::::::::::::::::::       Helpers       ::::::::::::::::::: */
+
+/* Synchronize motors */
+void syncMotors(){
+  // TODO
+}
+
+/* Check Obstacles */
+void checkObstacles(){
+  
+  /* Trigger the sound of the left ultrassonic sensor */
+  ultrassonic_timing = ultrasonic_left.timing();
+
+  /* Measure distance of the left ultrassonic sensor */
+  ultrassonic_distance_left = ultrasonic_left.convert(ultrassonic_timing, Ultrasonic::CM);
+  
+  /* Trigger the sound of the right ultrassonic sensor */
+  ultrassonic_timing = ultrasonic_right.timing();
+
+  /* Measure distance of the right ultrassonic sensor */
+  ultrassonic_distance_right = ultrasonic_right.convert(ultrassonic_timing, Ultrasonic::CM);
+
+  /* Brake if there are obstacles on right or left */
+  if(ultrassonic_distance_left <= 40 || ultrassonic_distance_right <= 40){
+    brake();
+  }
+  
+}
 
 /* Read Ir signal */
 void readIRSignal(){
@@ -202,10 +251,10 @@ void executeCommand(int motor_command){
 /* Acelerate a given motor */
 void acelerateMotor(int motor_num, int motor_speed){
   switch(motor_num){
-    case MOTOR_RIGHT:
+    case MOTOR_LEFT:
       analogWrite(SPE_MOTOR1, motor_speed);
       break;
-    case MOTOR_LEFT:
+    case MOTOR_RIGHT:
       analogWrite(SPE_MOTOR2, motor_speed);
       break;
   }
@@ -214,11 +263,11 @@ void acelerateMotor(int motor_num, int motor_speed){
 /* Change state of enable pin */
 void changeMotorState(int motor_num, bool in1_motor_state, bool in2_motor_state){
   switch(motor_num){
-    case MOTOR_RIGHT:
+    case MOTOR_LEFT:
       digitalWrite(IN1_MOTOR1, in1_motor_state);
       digitalWrite(IN2_MOTOR1, in2_motor_state);
       break;
-    case MOTOR_LEFT:
+    case MOTOR_RIGHT:
       digitalWrite(IN1_MOTOR2, in1_motor_state);
       digitalWrite(IN2_MOTOR2, in2_motor_state);
       break;

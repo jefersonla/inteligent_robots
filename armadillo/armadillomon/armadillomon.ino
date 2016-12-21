@@ -39,18 +39,23 @@
 
 /* Up Button */
 #define UP_BUTTON     0x8076A05F
+#define UP_COMMAND    'F'
 
 /* Bottom Button */
 #define BOTTOM_BUTTON 0x807620DF
+#define BOTTOM_COMMAND 'B'
 
 /* Left Button */
 #define LEFT_BUTTON   0x8076F807
+#define LEFT_COMMAND  'L'
 
 /* Right Button */
 #define RIGHT_BUTTON  0x80767887
+#define RIGHT_COMMAND 'R'
 
 /* Brake Button */
 #define BRAKE_BUTTON  0x8076708F
+#define BRAKE_COMMAND 'S'
 
 /* Default speeds */
 
@@ -65,6 +70,9 @@
 
 /* High Speed */
 #define HIGH_SPEED 250
+
+/* Check Obstacles Interval */
+#define CHECK_OBSTACLES_INTERVAL 500
 
 /* Acelerate both motors */
 #define acelerateMotors(motor_speed) do { acelerateMotor(MOTOR_RIGHT, motor_speed); acelerateMotor(MOTOR_LEFT, motor_speed); } while(false)
@@ -88,10 +96,10 @@
 #define brake()        do { acelerateMotors(STOP_SPEED);   brakeMotor(MOTOR_RIGHT); brakeMotor(MOTOR_LEFT); } while(false)
 
 /* Step Right */
-#define stepRight()    do { acelerateMotors(LOW_SPEED);    brakeMotor(MOTOR_RIGHT); turnForwardMotor(MOTOR_LEFT); } while(false)
+#define stepRight()    do { acelerateMotors(LOW_SPEED);    brakeMotor(MOTOR_RIGHT); turnBackwardMotor(MOTOR_LEFT); } while(false)
 
 /* Step Left */
-#define stepLeft()     do { acelerateMotors(LOW_SPEED);    brakeMotor(MOTOR_LEFT);  turnForwardMotor(MOTOR_RIGHT); } while(false)
+#define stepLeft()     do { acelerateMotors(LOW_SPEED);    brakeMotor(MOTOR_LEFT);  turnBackwardMotor(MOTOR_RIGHT); } while(false)
 
 /* Log Utilities */
 
@@ -125,11 +133,14 @@ long ultrassonic_timing;
 float ultrassonic_distance_left;
 float ultrassonic_distance_right;
 
+/* Check Obstacles previous time */
+long obstacles_previous_time;
+
 /* ::::::::::::::::::: Configure the robot ::::::::::::::::::: */
 
 void setup(){
   /* Initialize serial communication */
-  Serial.begin(38200);
+  Serial.begin(9600);
 
   /* Print Hello Message */
   printMem( "...::: Hi, I'm Armadillomon :) ! :::...\n"
@@ -153,6 +164,9 @@ void setup(){
   /* Set motor default state */
   brake();
 
+  /* Obstacles previous time */
+  obstacles_previous_time = millis();
+
   /* Print end of setup */
   printMem("System Started Successfully!\n");
 }
@@ -164,8 +178,10 @@ void loop(){
   /* Read IR Signal */
   readIRSignal();
 
+  /* Read Serial commands */
+
   /* Check obstacles */
-  //checkObstacles();
+  checkObstacles();
   
   /* Synchronize motors */
   syncMotors();
@@ -180,24 +196,41 @@ void syncMotors(){
 
 /* Check Obstacles */
 void checkObstacles(){
+
+  /* Only check for obstacles in a given ammount of time */
+  if((millis() - obstacles_previous_time) > CHECK_OBSTACLES_INTERVAL){
+    
+    /* Trigger the sound of the left ultrassonic sensor */
+    ultrassonic_timing = ultrasonic_left.timing();
   
-  /* Trigger the sound of the left ultrassonic sensor */
-  ultrassonic_timing = ultrasonic_left.timing();
-
-  /* Measure distance of the left ultrassonic sensor */
-  ultrassonic_distance_left = ultrasonic_left.convert(ultrassonic_timing, Ultrasonic::CM);
+    /* Measure distance of the left ultrassonic sensor */
+    ultrassonic_distance_left = ultrasonic_left.convert(ultrassonic_timing, Ultrasonic::CM);
+    
+    /* Trigger the sound of the right ultrassonic sensor */
+    ultrassonic_timing = ultrasonic_right.timing();
   
-  /* Trigger the sound of the right ultrassonic sensor */
-  ultrassonic_timing = ultrasonic_right.timing();
+    /* Measure distance of the right ultrassonic sensor */
+    ultrassonic_distance_right = ultrasonic_right.convert(ultrassonic_timing, Ultrasonic::CM);
 
-  /* Measure distance of the right ultrassonic sensor */
-  ultrassonic_distance_right = ultrasonic_right.convert(ultrassonic_timing, Ultrasonic::CM);
-
-  /* Brake if there are obstacles on right or left */
-  if(ultrassonic_distance_left <= 40 || ultrassonic_distance_right <= 40){
-    brake();
+    /* Send data over serial */
+    Serial.print(F("{\n\"distance_right\":"));
+    Serial.print(ultrassonic_distance_right);
+    Serial.print(F(",\n\"distance_left\":"));
+    Serial.println(ultrassonic_distance_left);
+    printMem("}");
   }
   
+}
+
+/* Read Serial data */
+void readSerialData(){
+
+  /* If there are serial incoming data */
+  if(Serial.available()){
+    /* Read serial and execute command */
+    char serial_data = Serial.read();
+    executeCommand((int) serial_data);
+  }  
 }
 
 /* Read Ir signal */
@@ -223,22 +256,27 @@ void executeCommand(int motor_command){
   /* Check the command and change the direction state */
   switch(motor_command){
     case UP_BUTTON:
+    case UP_COMMAND:
       turnForward();
       printLogn("Pressed UP");
       break;
     case BOTTOM_BUTTON:
+    case BOTTOM_COMMAND:
       turnBackward();
       printLogn("Pressed DOWN");
       break;
     case LEFT_BUTTON:
+    case LEFT_COMMAND:
       stepLeft();
       printLogn("Pressed LEFT");
       break;
     case RIGHT_BUTTON:
+    case RIGHT_COMMAND:
       stepRight();
       printLogn("Pressed RIGHT");
       break;
     case BRAKE_BUTTON:
+    case BRAKE_COMMAND:
       brake();
       printLogn("Pressed BRAKE");
       break;

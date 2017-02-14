@@ -10,6 +10,8 @@
 
 #include <IRremote.h> 
 #include <SoftwareSerial.h>
+#include <TimerOne.h>
+#include <math.h>
 
 /***** USER CONFIG *****/
 
@@ -31,12 +33,13 @@
 /***********************/
 
 /* Serial Speed */
-#define SERIAL_SPEED          9600
+#define SERIAL_SPEED      9600
 
 /* Motor Types */
 /* Define the types of each motor */
 #define MOTOR_LEFT        1
 #define MOTOR_RIGHT       2
+#define BOTH_MOTORS       3
 
 /* Optical Encoders */
 #define ENCODER_LEFT_PIN  2
@@ -65,9 +68,9 @@
 #define SOFTWARE_SERIAL_RX_PIN  13
 
 /* Define the pins of the Ultrasonic Sensors */
-#define TRIGGER_PIN       16
-#define ECHO_PIN_LEFT     14
-#define ECHO_PIN_RIGHT    15
+#define TRIGGER_PIN       14
+#define ECHO_PIN_LEFT     15
+#define ECHO_PIN_RIGHT    16
 
 /* Robot Configs */
 
@@ -85,13 +88,13 @@
 #define WHEEL_WIDTH_MM    26
 
 /* Wheel size */
-#define WHEEL_DIAMETER_MM 75
+#define WHEEL_DIAMETER_MM 76
 
 /* Robot distance between wheels */
 #define WHEEL_DISTANCE_MM 100
 
 /* Number of slices of optical encoder */
-#define OPTICAL_ENCODER_STEPS 20
+#define ENCODER_STEPS 20
 
 /* Command buttons */
 
@@ -149,7 +152,7 @@
 /* Helpers */
 
 /* Acelerate both motors */
-#define acelerateMotors(motor_speed) do { acelerateMotor(MOTOR_RIGHT, motor_speed); acelerateMotor(MOTOR_LEFT, motor_speed); } while(false)
+#define acelerateMotors(motor_speed) acelerateMotor(BOTH_MOTORS, motor_speed)
 
 /* Turn Forward a given motor */
 #define turnForwardMotor(motor_num) changeMotorState(motor_num, HIGH, LOW)
@@ -161,13 +164,13 @@
 #define brakeMotor(motor_num) changeMotorState(motor_num, LOW, LOW)
 
 /* Turn both motors foward */
-#define turnForward()   do { turnForwardMotor(MOTOR_RIGHT);  turnForwardMotor(MOTOR_LEFT); } while(false)
+#define turnForward()   turnForwardMotor(BOTH_MOTORS)
 
 /* Turn both motors reverse */
-#define turnReverse()   do { turnReverseMotor(MOTOR_RIGHT);  turnReverseMotor(MOTOR_LEFT); } while(false)
+#define turnReverse()   turnReverseMotor(BOTH_MOTORS)
 
 /* Brake both motors */
-#define brake()         do { brakeMotor(MOTOR_RIGHT); brakeMotor(MOTOR_LEFT); } while(false)
+#define brake()         brakeMotor(BOTH_MOTORS)
 
 /* Step Right */
 /* Stop one of the motors and move the other in opossite direction */
@@ -212,11 +215,15 @@ SoftwareSerial            serialLog(SOFTWARE_SERIAL_TX_PIN, SOFTWARE_SERIAL_RX_P
 
 #endif
 
+#ifdef IR_CONTROL_ENABLED
+
 /* IR Receiver */
 IRrecv ir_receiver(RECEIVER_PIN);
 
 /* IR Receiver Decoder */
 decode_results ir_result;
+
+#endif
 
 /* Button State */
 long button_state;
@@ -234,13 +241,22 @@ int pwm_adjust_motor_right;
 /* Actual rotation */
 int actual_rotation;
 
+/* Step Angle */
+int step_angle;
+
+/* Step Length */
+int step_length;
+
+/* Rotation length */
+int rotation_length;
+
 /* Number of steps completed */
-int steps_motor_left;
-int steps_motor_right;
+volatile int steps_motor_left;
+volatile int steps_motor_right;
 
 /* Number of rotations completed */
-int rotations_motor_left;
-int rotations_motor_right;
+volatile int rotations_motor_left;
+volatile int rotations_motor_right;
 
 /* ::::::::::::::::::: Configure the robot ::::::::::::::::::: */
 
@@ -263,9 +279,37 @@ void setup(){
   pinMode(SPEED_MOTOR_LEFT, OUTPUT);
   pinMode(SPEED_MOTOR_RIGHT, OUTPUT);
 
+  #ifdef IR_CONTROL_ENABLED
   /* Enable IR Receiver */
   ir_receiver.enableIRIn();
+  #endif
 
+  /* Initialize actual pwm motor speed */
+  actual_pwm_motor_speed = 0;
+
+  /* Initialize step counters */
+  steps_motor_left = 0;
+  steps_motor_right = 0;
+
+  /* Initiliaze rotation counters */
+  rotations_motor_left = 0;
+  rotations_motor_right = 0;
+
+  /* Initialize actual rotation */
+  actual_rotation = 0;
+
+  /* Initialize step angle */
+  step_angle = 360 / ENCODER_STEPS;
+
+  /* Initialize step length */
+  step_length = ceil(((float)(step_angle * PI) * (WHEEL_DIAMETER_MM / 2.0)) / 180.0);
+
+  /* Initialize Rotation Length */
+  rotation_length = ceil(PI * WHEEL_DIAMETER_MM);
+
+  /* Adjust Motors */
+  adjustMotors();
+  
   /* Set motor default state */
   brake();
 
@@ -303,8 +347,9 @@ void stepCounterMotorLeft(){
   steps_motor_left++;
 
   /* Increase one rotation if we had completed */
-  if(steps_motor_left == ){
-    
+  if(steps_motor_left == ENCODER_STEPS){
+    steps_motor_left = 0;
+    rotations_motor_left++;
   }
 }
 
@@ -313,9 +358,15 @@ void stepCounterMotorRight(){
   steps_motor_right++;
 
   /* Increase one rotation if we had completed */
-  if(){
-    
+  if(steps_motor_right == ENCODER_STEPS){
+    steps_motor_right = 0;
+    rotations_motor_right++;
   }
+}
+
+/* Adjust motors to run in the same speed */
+void adjustMotors(){
+  // TODO
 }
 
 /* Synchronize motors */
@@ -358,6 +409,7 @@ void readSerialData(){
   }  
 }
 
+#ifdef IR_CONTROL_ENABLED
 /* Read Ir signal */
 void readIRSignal(){
 
@@ -374,6 +426,7 @@ void readIRSignal(){
     ir_receiver.resume();
   }
 }
+#endif
 
 /* Change Motor State */
 void executeCommand(long motor_command){
@@ -448,6 +501,10 @@ void acelerateMotor(int motor_num, int pwm_motor_speed){
     case MOTOR_RIGHT:
       analogWrite(SPEED_MOTOR_RIGHT, pwm_motor_speed + pwm_adjust_motor_right);
       break;
+    case BOTH_MOTORS:
+      analogWrite(SPEED_MOTOR_LEFT, pwm_motor_speed + pwm_adjust_motor_left);
+      analogWrite(SPEED_MOTOR_RIGHT, pwm_motor_speed + pwm_adjust_motor_right);
+      break;
   }
 }
 
@@ -459,6 +516,12 @@ void changeMotorState(int motor_num, bool in1_motor_state, bool in2_motor_state)
       digitalWrite(IN2_MOTOR_LEFT, in2_motor_state);
       break;
     case MOTOR_RIGHT:
+      digitalWrite(IN1_MOTOR_RIGHT, in2_motor_state);
+      digitalWrite(IN2_MOTOR_RIGHT, in1_motor_state);
+      break;
+    case BOTH_MOTORS:
+      digitalWrite(IN1_MOTOR_LEFT, in1_motor_state);
+      digitalWrite(IN2_MOTOR_LEFT, in2_motor_state);
       digitalWrite(IN1_MOTOR_RIGHT, in2_motor_state);
       digitalWrite(IN2_MOTOR_RIGHT, in1_motor_state);
       break;

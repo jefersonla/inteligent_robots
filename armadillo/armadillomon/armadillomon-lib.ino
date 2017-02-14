@@ -142,7 +142,7 @@
 
 /* Brake Button */
 #define BRAKE_BUTTON_IR     0x8076708F
-#define BRAKE_COMMAND       'S'
+#define BRAKE_COMMAND       'B'
 
 /* Default speeds */
 
@@ -251,7 +251,8 @@ SoftwareSerial            serialLog(SOFTWARE_SERIAL_TX_PIN, SOFTWARE_SERIAL_RX_P
 #define printLogVarn(VAR) LOG_OBJECT.println(VAR)
 
 /* Print Progmem */
-#define printMem(MSG)     LOG_OBJECT.println(F(MSG))
+#define printMem(MSG)     LOG_OBJECT.print(F(MSG))
+#define printMemn(MSG)    LOG_OBJECT.println(F(MSG))
 
 #endif
 
@@ -404,7 +405,7 @@ void setup(){
   #endif
   
   /* Adjust Motors */
-  //adjustMotors();
+  adjustMotors();
 
   #ifdef ENABLE_LOG
   /* Start adjust of motors */
@@ -479,13 +480,27 @@ void acelerationTestRoutine(){
 /* Aceleration Test */
 void acelerationTest(){
 
-  /* Reconfigurate timer */
-  Timer1.attachInterrupt(acelerationTestRoutine);
-  Timer1.stop();
+  #ifdef LOG_ENABLE
+  /* Doing aceleration test */
+  printLogn("Doing aceleration test");
+  #endif
 
+  /* Clean counters variables */
+  steps_motor_left = 0;
+  rotations_motor_left = 0;
+  steps_motor_right = 0;
+  rotations_motor_right = 0;
+  
   /* Lock a mutex and acelerate motors with a high speed */
   routine_flag_mutex_lock = true;
+  turnForward();
   acelerateMotors(PWM_HIGH_SPEED);
+
+  delay(TIME_1S_MS);
+  
+  /* Reconfigurate timer */
+  Timer1.stop();
+  Timer1.attachInterrupt(acelerationTestRoutine);
   Timer1.start();
 
   /* Wait until it finishes the thread */
@@ -496,10 +511,9 @@ void acelerationTest(){
 void adjustMotors(){
 
   /* First initialize Timer1 with a routine of 1 second */
-  Timer1.initialize(TIME_1S_US);
-  Timer1.stop();
+  Timer1.initialize(TIME_2S_US);
 
-  int motors_steps_difference;
+  int motors_steps_difference = 0;
 
   /* Compute the difference between these two motors, until it finishes */
   do{
@@ -534,36 +548,50 @@ void adjustMotors(){
     printLogVarn(pwm_adjust_motor_left);
     printLog("Motors pwm adjust motor right = ");
     printLogVarn(pwm_adjust_motor_right);
-    
     #endif
 
     /* Until the error between the two motors are close enough */
-    if(motors_steps_difference <= MAX_STEPS_ERROR){
+    if(motors_steps_difference > MAX_STEPS_ERROR){
       
       /* Check which motor should be corrected to the other */
       if(motor_left_total_steps > motor_right_total_steps){
         /* Adjust strength of motor right */
-        if(pwm_adjust_motor_right == MAX_PWM_INCREMENT){
+        if(pwm_adjust_motor_right < MAX_PWM_INCREMENT){
           pwm_adjust_motor_right++;
         }
         /* Adjust strength of motor left */
-        else if(pwm_adjust_motor_left == MAX_PWM_DECREMENT){
+        else if(pwm_adjust_motor_left > MAX_PWM_DECREMENT){
           pwm_adjust_motor_left--;
         }
       }
       else if(motor_right_total_steps > motor_left_total_steps){
         /* Adjust strength of motor right */
-        if(pwm_adjust_motor_left == MAX_PWM_INCREMENT){
+        if(pwm_adjust_motor_left < MAX_PWM_INCREMENT){
           pwm_adjust_motor_left++;
         }
         /* Adjust strength of motor left */
-        else if(pwm_adjust_motor_right == MAX_PWM_DECREMENT){
+        else if(pwm_adjust_motor_right > MAX_PWM_DECREMENT){
           pwm_adjust_motor_right--;
         }
       }
     }
-  } while(motors_steps_difference <= MAX_STEPS_ERROR);
-  
+    
+    #ifdef LOG_ENABLE
+    /* Print Check between error allowed and speed */
+    printLog("(motors_steps_difference = ");
+    printLogVar(motors_steps_difference);
+    printMem(") <= (MAX_STEPS_ERROR = ");
+    printLogVar(MAX_STEPS_ERROR);
+    printMemn(")");
+    #endif
+
+    /* Wait 2S to perform new adjustment */
+    delay(TIME_2S_MS);
+    
+  } while(motors_steps_difference > MAX_STEPS_ERROR);
+
+  /* Stop pwm to speed */
+  acelerateMotors(PWM_STOP_SPEED);
 }
 
 /* Synchronize motors */
@@ -687,7 +715,8 @@ void executeCommand(long motor_command){
       break;
     default:
       #ifdef ENABLE_LOG
-      printLogn("INVALID COMMAND!\nButton Pressed: ");
+      printLogn("INVALID COMMAND!");
+      printLog("Button Pressed: ");
       printLogVarn(motor_command);
       #endif
   }

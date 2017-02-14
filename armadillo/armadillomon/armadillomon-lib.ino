@@ -8,10 +8,10 @@
   by Jeferson Lima and Andressa Andrade
  */
 
-#include <IRremote.h> 
-#include <SoftwareSerial.h>
-#include <TimerOne.h>
 #include <math.h>
+#include <IRremote.h>
+#include <TimerOne.h> 
+#include <SoftwareSerial.h>
 
 /***** USER CONFIG *****/
 
@@ -158,6 +158,28 @@
 /* Maximum Speed - 100% */
 #define PWM_MAXIMUM_SPEED 255
 
+/* Timer Utilities */
+
+/* Time constants */
+#define TIME_1S_MS        1000
+#define TIME_2S_MS        2000
+#define TIME_1S_US        1000000
+#define TIME_2S_US        1000000
+
+/* Wait while some mutex are locked */
+#define await(MUTEX_NAME) while(MUTEX_NAME)
+
+/* Grid Movimentation  */
+
+/* Grid Size */
+#define GRID_SIZE         20
+
+/* 
+ *                   !!!!! WARNING !!!!!
+ *           GRIDS SHOULDN'T BE GREATER THAN 35! 
+ *  WHICH CONSUMES 1225 BYTES AND SHOULD BREAK EVERYTHING 
+ */
+
 /* Helpers */
 
 /* Acelerate both motors */
@@ -266,6 +288,9 @@ volatile int steps_motor_right;
 /* Number of rotations completed */
 volatile int rotations_motor_left;
 volatile int rotations_motor_right;
+
+/* Routine Flag Lock */
+volatile bool routine_flag_mutex_lock;
 
 /* ::::::::::::::::::: Configure the robot ::::::::::::::::::: */
 
@@ -379,12 +404,52 @@ void stepCounterMotorRight(){
 
 /* Motor aceleration test */
 void acelerationTestRoutine(){
-  // TODO
+
+  /* Stop and dettach this routine after execution */
+  Timer1.stop();
+  Timer1.detachInterrupt();
+
+  /* Brake the motor */
+  brake();
+
+  /* Unlock mutex lock */
+  routine_flag_mutex_lock = false;
 }
 
 /* Adjust motors to run in the same speed */
 void adjustMotors(){
-  // TODO
+
+  /* First initialize Timer1 with a routine of 1 second */
+  Timer1.initialize(TIME_1S_US);
+  Timer1.attachInterrupt(acelerationTestRoutine);
+  Timer1.stop();
+
+  /* Lock a mutex and acelerate motors with a high speed */
+  routine_flag_mutex_lock = true;
+  acelerateMotors(PWM_HIGH_SPEED);
+  Timer1.start();
+
+  /* Wait until it finishes the thread */
+  await(routine_flag_mutex_lock);
+
+  /* Total number of steps perfomed by each motor */
+  int motor_left_total_steps = (rotations_motor_left * ENCODER_STEPS) + steps_motor_left;
+  int motor_right_total_steps = (rotations_motor_right * ENCODER_STEPS) + steps_motor_right;
+  
+  /* Check the difference between the two motors */
+  int motors_rotation_difference = abs(rotations_motor_left - rotations_motor_right);
+  int motors_steps_difference = abs(motor_left_total_steps - motor_right_total_steps);
+
+  /* Check which motor should be corrected to the other */
+  if(motor_left_total_steps > motor_right_total_steps){
+    /* Adjust strength of motor right */
+    
+  }
+  else if(motor_right_total_steps > motor_left_total_steps){
+    /* Adjust strength of motor right */
+    
+  }
+  
 }
 
 /* Synchronize motors */
@@ -456,6 +521,7 @@ void executeCommand(long motor_command){
       #ifdef ENABLE_LOG
       printLogn("Pressed acelerator");
       #endif
+      break;
     case FORWARD_BUTTON_IR:
       acelerateMotors(PWM_MEDIUM_SPEED);    
     case FORWARD_COMMAND:

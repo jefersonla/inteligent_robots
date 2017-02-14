@@ -27,6 +27,9 @@
 /* Enable command using Ir Signal */
 //#define IR_CONTROL_ENABLED
 
+/* Enable this macro if you have a L298P with mirroed motor outputs */
+#define MIRROED_MOTORS
+
 /* Enable command using Serial */
 #define SERIAL_CONTROL_ENABLED
 
@@ -96,6 +99,9 @@
 /* Number of slices of optical encoder */
 #define ENCODER_STEPS 20
 
+/* Encoder type of interruption */
+#define ENCODER_INTERRUPTION_TYPE RISING
+
 /* Command buttons */
 
 /* Forward Button */
@@ -127,6 +133,9 @@
 /* Directions possible */
 #define LEFT_DIRECTION      'L'
 #define RIGHT_DIRECTION     'R'
+
+/* Acelerate Command */
+#define ACELERATE_COMMAND   'A'
 
 /* Brake Button */
 #define BRAKE_BUTTON_IR     0x8076708F
@@ -302,10 +311,14 @@ void setup(){
   step_angle = 360 / ENCODER_STEPS;
 
   /* Initialize step length */
-  step_length = ceil(((float)(step_angle * PI) * (WHEEL_DIAMETER_MM / 2.0)) / 180.0);
+  step_length = ceil((step_angle * PI * (WHEEL_DIAMETER_MM / 2.0)) / 180.0);
 
   /* Initialize Rotation Length */
   rotation_length = ceil(PI * WHEEL_DIAMETER_MM);
+
+  /* Attach interrupts of the encoders */
+  attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_PIN), stepCounterMotorLeft, ENCODER_INTERRUPTION_TYPE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_PIN), stepCounterMotorRight, ENCODER_INTERRUPTION_TYPE);
 
   /* Adjust Motors */
   adjustMotors();
@@ -362,6 +375,11 @@ void stepCounterMotorRight(){
     steps_motor_right = 0;
     rotations_motor_right++;
   }
+}
+
+/* Motor aceleration test */
+void acelerationTestRoutine(){
+  // TODO
 }
 
 /* Adjust motors to run in the same speed */
@@ -433,7 +451,13 @@ void executeCommand(long motor_command){
   
   /* Check the command and change the direction state */
   switch(motor_command){
+    case ACELERATE_COMMAND:
+      acelerateMotors(PWM_MEDIUM_SPEED);
+      #ifdef ENABLE_LOG
+      printLogn("Pressed acelerator");
+      #endif
     case FORWARD_BUTTON_IR:
+      acelerateMotors(PWM_MEDIUM_SPEED);    
     case FORWARD_COMMAND:
       turnForward();
       #ifdef ENABLE_LOG
@@ -441,6 +465,7 @@ void executeCommand(long motor_command){
       #endif
       break;
     case REVERSE_BUTTON_IR:
+      acelerateMotors(PWM_MEDIUM_SPEED);
     case REVERSE_COMMAND:
       turnReverse();
       #ifdef ENABLE_LOG
@@ -516,14 +541,24 @@ void changeMotorState(int motor_num, bool in1_motor_state, bool in2_motor_state)
       digitalWrite(IN2_MOTOR_LEFT, in2_motor_state);
       break;
     case MOTOR_RIGHT:
+      #ifdef MIRROED_MOTORS
       digitalWrite(IN1_MOTOR_RIGHT, in2_motor_state);
       digitalWrite(IN2_MOTOR_RIGHT, in1_motor_state);
+      #else
+      digitalWrite(IN1_MOTOR_RIGHT, in1_motor_state);
+      digitalWrite(IN2_MOTOR_RIGHT, in2_motor_state);
+      #endif
       break;
     case BOTH_MOTORS:
       digitalWrite(IN1_MOTOR_LEFT, in1_motor_state);
       digitalWrite(IN2_MOTOR_LEFT, in2_motor_state);
+      #ifdef MIRROED_MOTORS
       digitalWrite(IN1_MOTOR_RIGHT, in2_motor_state);
       digitalWrite(IN2_MOTOR_RIGHT, in1_motor_state);
+      #else
+      digitalWrite(IN1_MOTOR_RIGHT, in1_motor_state);
+      digitalWrite(IN2_MOTOR_RIGHT, in2_motor_state);
+      #endif
       break;
   }
 }

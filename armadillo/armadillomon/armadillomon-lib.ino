@@ -102,6 +102,9 @@
 /* Encoder type of interruption */
 #define ENCODER_INTERRUPTION_TYPE RISING
 
+/* Max number of difference between the speed of the motors */
+#define MAX_STEPS_ERROR 2
+
 /* Command buttons */
 
 /* Forward Button */
@@ -158,6 +161,12 @@
 /* Maximum Speed - 100% */
 #define PWM_MAXIMUM_SPEED 255
 
+/* Max pwm increment */
+#define MAX_PWM_INCREMENT 20
+
+/* MAX pwm decrement */
+#define MAX_PWM_DECREMENT 20
+
 /* Timer Utilities */
 
 /* Time constants */
@@ -177,7 +186,7 @@
 /* 
  *                   !!!!! WARNING !!!!!
  *           GRIDS SHOULDN'T BE GREATER THAN 35! 
- *  WHICH CONSUMES 1225 BYTES AND SHOULD BREAK EVERYTHING 
+ *  A 35x35 CONSUMES 1225 BYTES AND MIGHT BREAK EVERYTHING!
  */
 
 /* Helpers */
@@ -300,10 +309,12 @@ void setup(){
   LOG_OBJECT.begin(SERIAL_SPEED);
   #endif
 
+  #ifdef ENABLE_LOG
   /* Print Hello Message */
   printMem( "...::: Hi, I'm Armadillomon :) ! :::...\n"
             "By Jeferson Lima & Andressa Andrade\n"
             "Starting System...\n" );
+  #endif
   
   /* Configure all motors related pins as output */
   pinMode(IN1_MOTOR_LEFT, OUTPUT);
@@ -312,6 +323,11 @@ void setup(){
   pinMode(IN2_MOTOR_RIGHT, OUTPUT);
   pinMode(SPEED_MOTOR_LEFT, OUTPUT);
   pinMode(SPEED_MOTOR_RIGHT, OUTPUT);
+
+  #ifdef ENABLE_LOG
+  /* Configurated all the pins */
+  printLogn("Configurated all pin modes");
+  #endif
 
   #ifdef IR_CONTROL_ENABLED
   /* Enable IR Receiver */
@@ -332,28 +348,72 @@ void setup(){
   /* Initialize actual rotation */
   actual_rotation = 0;
 
+  /* Initialize pwm adjust speed */
+  pwm_adjust_motor_left = 0;
+  pwm_adjust_motor_right = 0;
+
+  #ifdef ENABLE_LOG
+  /* Initialized all variables */
+  printLogn("Initialized all variables");
+  #endif
+
   /* Initialize step angle */
-  step_angle = 360 / ENCODER_STEPS;
+  step_angle = ceil(360.0 / ENCODER_STEPS);
+
+  #ifdef ENABLE_LOG
+  /* Calculated step angle */
+  printLogn("Calculated step angle");
+  #endif
 
   /* Initialize step length */
   step_length = ceil((step_angle * PI * (WHEEL_DIAMETER_MM / 2.0)) / 180.0);
 
+  #ifdef ENABLE_LOG
+  /* Calculated step length */
+  printLogn("Calculated step length");
+  #endif
+
   /* Initialize Rotation Length */
   rotation_length = ceil(PI * WHEEL_DIAMETER_MM);
+
+  #ifdef ENABLE_LOG
+  /* Calculated rotation length*/
+  printLogn("Calculated rotation length");
+  #endif
 
   /* Attach interrupts of the encoders */
   attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_PIN), stepCounterMotorLeft, ENCODER_INTERRUPTION_TYPE);
   attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_PIN), stepCounterMotorRight, ENCODER_INTERRUPTION_TYPE);
-
-  /* Adjust Motors */
-  adjustMotors();
   
+  #ifdef ENABLE_LOG
+  /* Attached the encoder interrupts */
+  printLogn("Attached the encoder interrupts");
+  #endif
+
   /* Set motor default state */
   brake();
 
   #ifdef ENABLE_LOG
+  /* Brake motor */
+  printLogn("Brake motor");
+  #endif
+  
+  #ifdef ENABLE_LOG
+  /* Start adjust of motors */
+  printLogn("Attached the encoder interrupts");
+  #endif
+  
+  /* Adjust Motors */
+  //adjustMotors();
+
+  #ifdef ENABLE_LOG
+  /* Start adjust of motors */
+  printLogn("Motors adjusted");
+  #endif
+
+  #ifdef ENABLE_LOG
   /* Print end of setup */
-  printMem("System Started Successfully!\n");
+  printMem("\nSystem Started Successfully!\n");
   #endif
 }
 
@@ -402,7 +462,7 @@ void stepCounterMotorRight(){
   }
 }
 
-/* Motor aceleration test */
+/* Motor aceleration test routine */
 void acelerationTestRoutine(){
 
   /* Stop and dettach this routine after execution */
@@ -416,11 +476,10 @@ void acelerationTestRoutine(){
   routine_flag_mutex_lock = false;
 }
 
-/* Adjust motors to run in the same speed */
-void adjustMotors(){
+/* Aceleration Test */
+void acelerationTest(){
 
-  /* First initialize Timer1 with a routine of 1 second */
-  Timer1.initialize(TIME_1S_US);
+  /* Reconfigurate timer */
   Timer1.attachInterrupt(acelerationTestRoutine);
   Timer1.stop();
 
@@ -431,24 +490,79 @@ void adjustMotors(){
 
   /* Wait until it finishes the thread */
   await(routine_flag_mutex_lock);
+}
 
-  /* Total number of steps perfomed by each motor */
-  int motor_left_total_steps = (rotations_motor_left * ENCODER_STEPS) + steps_motor_left;
-  int motor_right_total_steps = (rotations_motor_right * ENCODER_STEPS) + steps_motor_right;
-  
-  /* Check the difference between the two motors */
-  int motors_rotation_difference = abs(rotations_motor_left - rotations_motor_right);
-  int motors_steps_difference = abs(motor_left_total_steps - motor_right_total_steps);
+/* Adjust motors to run in the same speed */
+void adjustMotors(){
 
-  /* Check which motor should be corrected to the other */
-  if(motor_left_total_steps > motor_right_total_steps){
-    /* Adjust strength of motor right */
+  /* First initialize Timer1 with a routine of 1 second */
+  Timer1.initialize(TIME_1S_US);
+  Timer1.stop();
+
+  int motors_steps_difference;
+
+  /* Compute the difference between these two motors, until it finishes */
+  do{
+
+    #ifdef ENABLE_LOG
+    /* Start adjust of motors */
+    printLogn("Adjusting motors...");
+    #endif
+
+    /* Do aceleration test */
+    acelerationTest();
+ 
+    /* Total number of steps perfomed by each motor */
+    int motor_left_total_steps = (rotations_motor_left * ENCODER_STEPS) + steps_motor_left;
+    int motor_right_total_steps = (rotations_motor_right * ENCODER_STEPS) + steps_motor_right;
     
-  }
-  else if(motor_right_total_steps > motor_left_total_steps){
-    /* Adjust strength of motor right */
+    /* Check the difference between the two motors */
+    int motors_rotation_difference = abs(rotations_motor_left - rotations_motor_right);
+    motors_steps_difference = abs(motor_left_total_steps - motor_right_total_steps);
+
+    #ifdef ENABLE_LOG
+    /* Start adjust of motors */
+    printLog("Motor left total steps = ");
+    printLogVarn(motor_left_total_steps);
+    printLog("Motor right total steps = ");
+    printLogVarn(motor_right_total_steps);
+    printLog("Motors rotation difference = ");
+    printLogVarn(motors_rotation_difference);
+    printLog("Motors steps difference = ");
+    printLogVarn(motors_steps_difference);
+    printLog("Motors pwm adjust motor left = ");
+    printLogVarn(pwm_adjust_motor_left);
+    printLog("Motors pwm adjust motor right = ");
+    printLogVarn(pwm_adjust_motor_right);
     
-  }
+    #endif
+
+    /* Until the error between the two motors are close enough */
+    if(motors_steps_difference <= MAX_STEPS_ERROR){
+      
+      /* Check which motor should be corrected to the other */
+      if(motor_left_total_steps > motor_right_total_steps){
+        /* Adjust strength of motor right */
+        if(pwm_adjust_motor_right == MAX_PWM_INCREMENT){
+          pwm_adjust_motor_right++;
+        }
+        /* Adjust strength of motor left */
+        else if(pwm_adjust_motor_left == MAX_PWM_DECREMENT){
+          pwm_adjust_motor_left--;
+        }
+      }
+      else if(motor_right_total_steps > motor_left_total_steps){
+        /* Adjust strength of motor right */
+        if(pwm_adjust_motor_left == MAX_PWM_INCREMENT){
+          pwm_adjust_motor_left++;
+        }
+        /* Adjust strength of motor left */
+        else if(pwm_adjust_motor_right == MAX_PWM_DECREMENT){
+          pwm_adjust_motor_right--;
+        }
+      }
+    }
+  } while(motors_steps_difference <= MAX_STEPS_ERROR);
   
 }
 

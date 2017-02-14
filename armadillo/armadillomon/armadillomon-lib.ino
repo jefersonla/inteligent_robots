@@ -67,13 +67,19 @@
 #define REVERSE_BUTTON_IR   0x807620DF
 #define REVERSE_COMMAND     'R'
 
-/* Turn Left Button */
+/* Left Direction Button */
 #define LEFT_BUTTON_IR      0x8076F807
-#define LEFT_COMMAND        'L'
 
 /* Turn Right Button */
 #define RIGHT_BUTTON_IR     0x80767887
-#define RIGHT_COMMAND       'R'
+
+/* Step Command */
+#define STEP_COMMAND        'S'
+#define TURN_COMMAND        'T'
+
+/* Directions possible */
+#define LEFT_DIRECTION      'L'
+#define RIGHT_DIRECTION     'R'
 
 /* Brake Button */
 #define BRAKE_BUTTON_IR     0x8076708F
@@ -96,7 +102,7 @@
 /* Helpers */
 
 /* Acelerate both motors */
-#define acelerateMotors(motor_speed) do { speed_selected = motor_speed; acelerateMotor(MOTOR_RIGHT, motor_speed); acelerateMotor(MOTOR_LEFT, motor_speed); } while(false)
+#define acelerateMotors(motor_speed) do { acelerateMotor(MOTOR_RIGHT, motor_speed); acelerateMotor(MOTOR_LEFT, motor_speed); } while(false)
 
 /* Turn Forward a given motor */
 #define turnForwardMotor(motor_num) changeMotorState(motor_num, HIGH, LOW)
@@ -118,7 +124,7 @@
 
 /* Step Right */
 /* Stop one of the motors and move the other in opossite direction */
-#define stepLeft)      do { brakeMotor(MOTOR_RIGHT); turnReverseMotor(MOTOR_LEFT); } while(false)
+#define stepLeft()      do { brakeMotor(MOTOR_RIGHT); turnReverseMotor(MOTOR_LEFT); } while(false)
 
 /* Step Left */
 /* Stop one of the motors and move the other in opossite direction */
@@ -126,11 +132,11 @@
 
 /* Turn Left */
 /* Move both motors in opossite directions */
-#define turnRight()   do { turnForward(MOTOR_RIGHT); turnReverse(MOTOR_LEFT); } while(false)
+#define turnLeft()     do { turnForward(MOTOR_LEFT); turnReverse(MOTOR_RIGHT); } while(false)
 
 /* Turn Right */
 /* Move both motors in opossite directions */
-#define turnLeft()    do { turnForward(MOTOR_LEFT); turnReverse(MOTOR_RIGHT); } while(false)
+#define turnRight()    do { turnForward(MOTOR_RIGHT); turnReverse(MOTOR_LEFT); } while(false)
 
 /* Log Utilities */
 
@@ -154,6 +160,16 @@ decode_results ir_result;
 
 /* Button State */
 long button_state;
+
+/* Select virtual speed in cm/s */
+int motor_speed_virtual_cm;
+
+/* Select pwm speed */
+int motor_speed_pwm;
+
+/* Correction adjust for each motor */
+int pwm_adjust_motor_left;
+int pwm_adjust_motor_right;
 
 /* Ultrasonic Sensors*/
 //Ultrasonic ultrasonic_left(TRIGGER_PIN, LECHO_PIN);
@@ -279,15 +295,16 @@ void executeCommand(int motor_command){
       printLogn("Pressed DOWN");
       break;
     case LEFT_BUTTON:
-    case LEFT_COMMAND:
+    case STEP_LEFT_COMMAND:
       stepLeft();
       printLogn("Pressed LEFT");
       break;
     case RIGHT_BUTTON:
-    case RIGHT_COMMAND:
+    case STEP_RIGHT_COMMAND:
       stepRight();
       printLogn("Pressed RIGHT");
       break;
+    case 
     case BRAKE_BUTTON:
     case BRAKE_COMMAND:
       brake();
@@ -301,12 +318,17 @@ void executeCommand(int motor_command){
 
 /* Acelerate a given motor */
 void acelerateMotor(int motor_num, int motor_speed){
+
+  /* Convert cm/s speed to pwm */
+  int pwm_motor_speed = base_cms_pwm * motor_speed;
+
+  
   switch(motor_num){
     case MOTOR_LEFT:
-      analogWrite(SPE_MOTOR1, motor_speed);
+      analogWrite(SPE_MOTOR1, pwm_motor_speed + pwm_adjust_motor_left);
       break;
     case MOTOR_RIGHT:
-      analogWrite(SPE_MOTOR2, motor_speed);
+      analogWrite(SPE_MOTOR2, pwm_motor_speed + pwm_adjust_motor_left);
       break;
   }
 }

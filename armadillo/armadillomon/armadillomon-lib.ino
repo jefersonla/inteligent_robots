@@ -9,16 +9,29 @@
  */
 
 #include <IRremote.h> 
+#include <SoftwareSerial.h>
 
 /***** USER CONFIG *****/
 
 /* Enable control over serial */
 #define SERIAL_CONTROL_ENABLED
 
+/* Enable serial log if you are using serial communication */
+#define ENABLE_LOG
+
+/* Enable log on software serial, the default is on main Serial */
+//#define SOFTWARE_SERIAL_LOG
+
+/* Enable command using Ir Signal */
+//#define IR_CONTROL_ENABLED
+
+/* Enable command using Serial */
+#define SERIAL_CONTROL_ENABLED
+
 /***********************/
 
-/* IR Receiver pin */
-#define RECEIVER_PIN      8
+/* Serial Speed */
+#define SERIAL_SPEED          9600
 
 /* Motor Types */
 /* Define the types of each motor */
@@ -44,6 +57,13 @@
 #define IN1_MOTOR_RIGHT   9
 #define IN2_MOTOR_RIGHT   10
 
+/* IR Receiver pin */
+#define RECEIVER_PIN      11
+
+/* Software Serial Pins */
+#define SOFTWARE_SERIAL_TX_PIN  12
+#define SOFTWARE_SERIAL_RX_PIN  13
+
 /* Define the pins of the Ultrasonic Sensors */
 #define TRIGGER_PIN       16
 #define ECHO_PIN_LEFT     14
@@ -51,11 +71,27 @@
 
 /* Robot Configs */
 
-/* Wheel size */
-#define WHEEL_SIZE_MM     75
+/* Robot Width */
+#define ROBOT_WIDTH_MM    156
 
-/* Optical Encoder step angle */
-#define OPTICAL_ENCODER_GRADE
+/* Robot Length */
+#define ROBOT_LENGTH_MM   210
+
+/* Center of wheels */
+#define WHEEL_CENTER_X    78
+#define WHEEL_CENTER_Y    135
+
+/* Wheel width */
+#define WHEEL_WIDTH_MM    26
+
+/* Wheel size */
+#define WHEEL_DIAMETER_MM 75
+
+/* Robot distance between wheels */
+#define WHEEL_DISTANCE_MM 100
+
+/* Number of slices of optical encoder */
+#define OPTICAL_ENCODER_STEPS 20
 
 /* Command buttons */
 
@@ -67,11 +103,19 @@
 #define REVERSE_BUTTON_IR   0x807620DF
 #define REVERSE_COMMAND     'R'
 
-/* Left Direction Button */
+/* Step Left Button */
 #define LEFT_BUTTON_IR      0x8076F807
+#define STEP_LEFT_COMMAND    '1'
 
-/* Turn Right Button */
+/* Step Right Button */
 #define RIGHT_BUTTON_IR     0x80767887
+#define STEP_RIGHT_COMMAND  '2'
+
+/* Turn Left Command */
+#define TURN_LEFT_COMMAND   '3'
+
+/* Turn Right Command */
+#define TURN_RIGHT_COMMAND  '4'
 
 /* Step Command */
 #define STEP_COMMAND        'S'
@@ -90,14 +134,17 @@
 /* Stop speed */
 #define PWM_STOP_SPEED    0
 
-/* Low speed */
-#define PWM_LOW_SPEED     100
+/* Low speed - 30% */
+#define PWM_LOW_SPEED     80
 
-/* Medium speed */
+/* Medium speed - 60% */
 #define PWM_MEDIUM_SPEED  150
 
-/* High Speed */
-#define PWM_HIGH_SPEED    250
+/* High Speed - 90% */
+#define PWM_HIGH_SPEED    230
+
+/* Maximum Speed - 100% */
+#define PWM_MAXIMUM_SPEED 255
 
 /* Helpers */
 
@@ -111,46 +158,59 @@
 #define turnReverseMotor(motor_num) changeMotorState(motor_num, LOW, HIGH)
 
 /* Brake a given motor */
-#define brakeMotor(motor_num) changeMotorState(motor_num, HIGH, HIGH)
+#define brakeMotor(motor_num) changeMotorState(motor_num, LOW, LOW)
 
 /* Turn both motors foward */
-#define turnForward()  do { turnForwardMotor(MOTOR_RIGHT);  turnForwardMotor(MOTOR_LEFT); } while(false)
+#define turnForward()   do { turnForwardMotor(MOTOR_RIGHT);  turnForwardMotor(MOTOR_LEFT); } while(false)
 
 /* Turn both motors reverse */
-#define turnReverse() do { turnReverseMotor(MOTOR_RIGHT);  turnReverseMotor(MOTOR_LEFT); } while(false)
+#define turnReverse()   do { turnReverseMotor(MOTOR_RIGHT);  turnReverseMotor(MOTOR_LEFT); } while(false)
 
 /* Brake both motors */
-#define brake()        do { brakeMotor(MOTOR_RIGHT); brakeMotor(MOTOR_LEFT); } while(false)
+#define brake()         do { brakeMotor(MOTOR_RIGHT); brakeMotor(MOTOR_LEFT); } while(false)
 
 /* Step Right */
 /* Stop one of the motors and move the other in opossite direction */
-#define stepLeft()      do { brakeMotor(MOTOR_RIGHT); turnReverseMotor(MOTOR_LEFT); } while(false)
+#define stepLeft()      do { brakeMotor(MOTOR_RIGHT); turnForwardMotor(MOTOR_LEFT); } while(false)
 
 /* Step Left */
 /* Stop one of the motors and move the other in opossite direction */
-#define stepRight()    do { brakeMotor(MOTOR_LEFT);  turnReverseMotor(MOTOR_RIGHT); } while(false)
+#define stepRight()     do { brakeMotor(MOTOR_LEFT);  turnForwardMotor(MOTOR_RIGHT); } while(false)
 
 /* Turn Left */
 /* Move both motors in opossite directions */
-#define turnLeft()     do { turnForward(MOTOR_LEFT); turnReverse(MOTOR_RIGHT); } while(false)
+#define turnLeft()      do { turnForwardMotor(MOTOR_LEFT); turnReverseMotor(MOTOR_RIGHT); } while(false)
 
 /* Turn Right */
 /* Move both motors in opossite directions */
-#define turnRight()    do { turnForward(MOTOR_RIGHT); turnReverse(MOTOR_LEFT); } while(false)
+#define turnRight()     do { turnForwardMotor(MOTOR_RIGHT); turnReverseMotor(MOTOR_LEFT); } while(false)
 
 /* Log Utilities */
 
+#ifdef ENABLE_LOG
+
 /* Start of a log */
-#define LOG_LINE_START "[log] >> "
+#define LOG_LINE_START    "[log] >> "
+
+/* Log serial object */
+#ifndef SOFTWARE_SERIAL_LOG
+#define LOG_OBJECT        Serial
+#else
+/* Create the object */
+SoftwareSerial            serialLog(SOFTWARE_SERIAL_TX_PIN, SOFTWARE_SERIAL_RX_PIN);
+#define LOG_OBJECT        serialLog
+#endif
 
 /* Print Log */
-#define printLog(MSG)     Serial.print(F(LOG_LINE_START MSG))
+#define printLog(MSG)     LOG_OBJECT.print(F(LOG_LINE_START MSG))
 #define printLogn(MSG)    printLog(MSG "\n")
-#define printLogVar(VAR)  Serial.print(VAR)
-#define printLogVarn(VAR) Serial.println(VAR)
+#define printLogVar(VAR)  LOG_OBJECT.print(VAR)
+#define printLogVarn(VAR) LOG_OBJECT.println(VAR)
 
 /* Print Progmem */
-#define printMem(MSG) Serial.println(F(MSG))
+#define printMem(MSG)     LOG_OBJECT.println(F(MSG))
+
+#endif
 
 /* IR Receiver */
 IRrecv ir_receiver(RECEIVER_PIN);
@@ -161,35 +221,34 @@ decode_results ir_result;
 /* Button State */
 long button_state;
 
-/* Select virtual speed in cm/s */
-int motor_speed_virtual_cm;
+/* Selected virtual speed in cm/s */
+int motor_speed_virtual_cms;
 
-/* Select pwm speed */
-int motor_speed_pwm;
+/* Selected pwm speed */
+int actual_pwm_motor_speed;
 
-/* Correction adjust for each motor */
+/* Pwm adjust for each motor */
 int pwm_adjust_motor_left;
 int pwm_adjust_motor_right;
 
-/* Ultrasonic Sensors*/
-//Ultrasonic ultrasonic_left(TRIGGER_PIN, LECHO_PIN);
-//Ultrasonic ultrasonic_right(TRIGGER_PIN, RECHO_PIN);
+/* Actual rotation */
+int actual_rotation;
 
-/* Ultrassonic trigger execution time */
-long ultrassonic_timing;
+/* Number of steps completed */
+int steps_motor_left;
+int steps_motor_right;
 
-/* Ultrassonic distance read */
-float ultrassonic_distance_left;
-float ultrassonic_distance_right;
-
-/* Check Obstacles previous time */
-long obstacles_previous_time;
+/* Number of rotations completed */
+int rotations_motor_left;
+int rotations_motor_right;
 
 /* ::::::::::::::::::: Configure the robot ::::::::::::::::::: */
 
 void setup(){
+  #ifdef ENABLE_LOG
   /* Initialize serial communication */
-  Serial.begin(9600);
+  LOG_OBJECT.begin(SERIAL_SPEED);
+  #endif
 
   /* Print Hello Message */
   printMem( "...::: Hi, I'm Armadillomon :) ! :::...\n"
@@ -197,27 +256,23 @@ void setup(){
             "Starting System...\n" );
   
   /* Configure all motors related pins as output */
-  pinMode(IN1_MOTOR1, OUTPUT);
-  pinMode(IN2_MOTOR1, OUTPUT);
-  pinMode(IN1_MOTOR2, OUTPUT);
-  pinMode(IN2_MOTOR2, OUTPUT);
-  pinMode(SPE_MOTOR1, OUTPUT);
-  pinMode(SPE_MOTOR2, OUTPUT);
+  pinMode(IN1_MOTOR_LEFT, OUTPUT);
+  pinMode(IN2_MOTOR_LEFT, OUTPUT);
+  pinMode(IN1_MOTOR_RIGHT, OUTPUT);
+  pinMode(IN2_MOTOR_RIGHT, OUTPUT);
+  pinMode(SPEED_MOTOR_LEFT, OUTPUT);
+  pinMode(SPEED_MOTOR_RIGHT, OUTPUT);
 
   /* Enable IR Receiver */
   ir_receiver.enableIRIn();
 
-  /* Set the default speed of the motors */
-  acelerateMotors(MEDIUM_SPEED);
-
   /* Set motor default state */
   brake();
 
-  /* Obstacles previous time */
-  obstacles_previous_time = millis();
-
+  #ifdef ENABLE_LOG
   /* Print end of setup */
   printMem("System Started Successfully!\n");
+  #endif
 }
 
 /* ::::::::::::::::::: Execute System code ::::::::::::::::::: */
@@ -227,7 +282,9 @@ void loop(){
 #ifdef IR_CONTROL_ENABLED
   /* Read IR Signal */
   readIRSignal();
-#elif SERIAL_CONTROL_ENABLED
+#endif
+
+#ifdef SERIAL_CONTROL_ENABLED
   /* Read Serial commands */
   readSerialData();
 #endif
@@ -240,6 +297,26 @@ void loop(){
 }
 
 /* :::::::::::::::::::       Helpers       ::::::::::::::::::: */
+
+/* Increment counter of the motor left */
+void stepCounterMotorLeft(){
+  steps_motor_left++;
+
+  /* Increase one rotation if we had completed */
+  if(steps_motor_left == ){
+    
+  }
+}
+
+/* Increment counter of the motor right */
+void stepCounterMotorRight(){
+  steps_motor_right++;
+
+  /* Increase one rotation if we had completed */
+  if(){
+    
+  }
+}
 
 /* Synchronize motors */
 void syncMotors(){
@@ -258,7 +335,26 @@ void readSerialData(){
   if(Serial.available()){
     /* Read serial and execute command */
     char serial_data = Serial.read();
-    executeCommand((int) serial_data);
+
+    /* If we have special commands */
+    if(serial_data == STEP_COMMAND || serial_data == TURN_COMMAND){
+      char serial_data2 = Serial.read();
+      switch(serial_data2){
+        case LEFT_DIRECTION:
+          serial_data = (serial_data == STEP_COMMAND) ? '1' : '3';
+        case RIGHT_DIRECTION:
+          serial_data = (serial_data == STEP_COMMAND) ? '2' : '4';
+        default:
+          #ifdef ENABLE_LOG
+          printLog("Invalid char read : ");
+          printLogVarn(serial_data);
+          #endif
+          serial_data = '0';
+      }
+    }
+
+    /* Execute the command received */
+    executeCommand((long) serial_data);
   }  
 }
 
@@ -280,55 +376,77 @@ void readIRSignal(){
 }
 
 /* Change Motor State */
-void executeCommand(int motor_command){
+void executeCommand(long motor_command){
   
   /* Check the command and change the direction state */
   switch(motor_command){
-    case UP_BUTTON:
-    case UP_COMMAND:
+    case FORWARD_BUTTON_IR:
+    case FORWARD_COMMAND:
       turnForward();
-      printLogn("Pressed UP");
+      #ifdef ENABLE_LOG
+      printLogn("Pressed Forward");
+      #endif
       break;
-    case BOTTOM_BUTTON:
-    case BOTTOM_COMMAND:
-      turnBackward();
-      printLogn("Pressed DOWN");
+    case REVERSE_BUTTON_IR:
+    case REVERSE_COMMAND:
+      turnReverse();
+      #ifdef ENABLE_LOG
+      printLogn("Pressed Reverse");
+      #endif
       break;
-    case LEFT_BUTTON:
+    case LEFT_BUTTON_IR:
     case STEP_LEFT_COMMAND:
       stepLeft();
-      printLogn("Pressed LEFT");
+      #ifdef ENABLE_LOG
+      printLogn("Pressed Step Left");
+      #endif
       break;
-    case RIGHT_BUTTON:
+    case RIGHT_BUTTON_IR:
     case STEP_RIGHT_COMMAND:
       stepRight();
-      printLogn("Pressed RIGHT");
+      #ifdef ENABLE_LOG
+      printLogn("Pressed Step Right");
+      #endif
       break;
-    case 
-    case BRAKE_BUTTON:
+    case TURN_LEFT_COMMAND:
+      turnLeft();
+      #ifdef ENABLE_LOG
+      printLogn("Pressed Turn Left");
+      #endif
+      break;
+    case TURN_RIGHT_COMMAND:
+      turnRight();
+      #ifdef ENABLE_LOG
+      printLogn("Pressed Turn Right");
+      #endif
+      break;
+    case BRAKE_BUTTON_IR:
     case BRAKE_COMMAND:
       brake();
-      printLogn("Pressed BRAKE");
+      #ifdef ENABLE_LOG
+      printLogn("Pressed Brake");
+      #endif
       break;
     default:
+      #ifdef ENABLE_LOG
       printLogn("INVALID COMMAND!\nButton Pressed: ");
-      Serial.println(motor_command);
+      printLogVarn(motor_command);
+      #endif
   }
 }
 
 /* Acelerate a given motor */
-void acelerateMotor(int motor_num, int motor_speed){
+void acelerateMotor(int motor_num, int pwm_motor_speed){
 
-  /* Convert cm/s speed to pwm */
-  int pwm_motor_speed = base_cms_pwm * motor_speed;
+  /* Store Actual Speed */
+  actual_pwm_motor_speed = pwm_motor_speed;
 
-  
   switch(motor_num){
     case MOTOR_LEFT:
-      analogWrite(SPE_MOTOR1, pwm_motor_speed + pwm_adjust_motor_left);
+      analogWrite(SPEED_MOTOR_LEFT, pwm_motor_speed + pwm_adjust_motor_left);
       break;
     case MOTOR_RIGHT:
-      analogWrite(SPE_MOTOR2, pwm_motor_speed + pwm_adjust_motor_left);
+      analogWrite(SPEED_MOTOR_RIGHT, pwm_motor_speed + pwm_adjust_motor_right);
       break;
   }
 }
@@ -337,12 +455,12 @@ void acelerateMotor(int motor_num, int motor_speed){
 void changeMotorState(int motor_num, bool in1_motor_state, bool in2_motor_state){
   switch(motor_num){
     case MOTOR_LEFT:
-      digitalWrite(IN1_MOTOR1, in1_motor_state);
-      digitalWrite(IN2_MOTOR1, in2_motor_state);
+      digitalWrite(IN1_MOTOR_LEFT, in1_motor_state);
+      digitalWrite(IN2_MOTOR_LEFT, in2_motor_state);
       break;
     case MOTOR_RIGHT:
-      digitalWrite(IN1_MOTOR2, in2_motor_state);
-      digitalWrite(IN2_MOTOR2, in1_motor_state);
+      digitalWrite(IN1_MOTOR_RIGHT, in2_motor_state);
+      digitalWrite(IN2_MOTOR_RIGHT, in1_motor_state);
       break;
   }
 }

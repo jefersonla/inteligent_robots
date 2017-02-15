@@ -4,13 +4,24 @@
 
   This code example show a base robot controlled using an infrared controller.
 
+  To use this sketch install these libraries first:
+
+    * IRRemote
+    * TimerOne
+    * DigitalIO
+
+  To install these libraries open sketch->include library->library manager
+  select show all, and then search for the libraries, after install it, you
+  can use the code.
+
   modified 13 Feb 2017
   by Jeferson Lima and Andressa Andrade
  */
 
 #include <math.h>
+#include <DigitalIO.h>
 #include <IRremote.h>
-#include <TimerOne.h> 
+#include <TimerOne.h>
 #include <SoftwareSerial.h>
 
 /***** USER CONFIG *****/
@@ -18,14 +29,17 @@
 /* Enable control over serial */
 #define SERIAL_CONTROL_ENABLED
 
+/* Enable command using Ir Signal */
+//#define IR_CONTROL_ENABLED
+
 /* Enable serial log if you are using serial communication */
 #define ENABLE_LOG
 
 /* Enable log on software serial, the default is on main Serial */
 //#define SOFTWARE_SERIAL_LOG
 
-/* Enable command using Ir Signal */
-//#define IR_CONTROL_ENABLED
+/* Enable use of old and deprecated functions */
+//#define USE_OBSOLETE
 
 /* Enable this macro if you have a L298P with mirroed motor outputs */
 #define MIRROED_MOTORS
@@ -97,10 +111,11 @@
 #define WHEEL_DISTANCE_MM 100
 
 /* Number of slices of optical encoder */
-#define ENCODER_STEPS 20
+/* WARNING: MULTIPLY NUMBER OF SPACES IN ENCODER BY TWO! */
+#define ENCODER_STEPS 40
 
 /* Encoder type of interruption */
-#define ENCODER_INTERRUPTION_TYPE RISING
+#define ENCODER_INTERRUPTION_TYPE CHANGE
 
 /* Max number of difference between the speed of the motors */
 #define MAX_STEPS_ERROR 2
@@ -144,6 +159,9 @@
 #define BRAKE_BUTTON_IR     0x8076708F
 #define BRAKE_COMMAND       'B'
 
+/* Dump data */
+#define DUMP_COMMAND        'D'
+
 /* Default speeds */
 
 /* Stop speed */
@@ -172,6 +190,9 @@
 /* Time constants */
 #define TIME_1S_MS        1000
 #define TIME_2S_MS        2000
+#define TIME_0_1S_US      100000
+#define TIME_0_25S_US     250000
+#define TIME_0_5S_US      500000
 #define TIME_1S_US        1000000
 #define TIME_2S_US        1000000
 
@@ -209,8 +230,14 @@
 /* Turn both motors reverse */
 #define turnReverse()   turnReverseMotor(BOTH_MOTORS)
 
+/* Remove PWM adjust from both motors */
+#define zeroPwmAdjust() do { pwm_adjust_motor_left = 0; pwm_adjust_motor_right = 0; } while(false)
+
+/* Zero distance reach */
+#define zeroDistanceReach() do { distance_wanted = 0; distance_reach_motor_left = 0; distance_reach_motor_right = 0; } while(false)
+
 /* Brake both motors */
-#define brake()         do{ brakeMotor(BOTH_MOTORS); acelerateMotors(PWM_STOP_SPEED); }while(false)
+#define brake()         do { brakeMotor(BOTH_MOTORS); acelerateMotors(PWM_STOP_SPEED); zeroPwmAdjust(); } while(false)
 
 /* Step Right */
 /* Stop one of the motors and move the other in opossite direction */
@@ -291,6 +318,13 @@ int step_length;
 /* Rotation length */
 int rotation_length;
 
+/* Distance wanted */
+volatile int distance_wanted;
+
+/* Distance read by each motor */
+volatile int distance_reach_motor_left;
+volatile int distance_reach_motor_right;
+
 /* Number of steps completed */
 volatile int steps_motor_left;
 volatile int steps_motor_right;
@@ -298,6 +332,10 @@ volatile int steps_motor_right;
 /* Number of rotations completed */
 volatile int rotations_motor_left;
 volatile int rotations_motor_right;
+
+/* Number of ticks on each motor, used to tune adjust */
+volatile int adjust_ticks_motor_left;
+volatile int adjust_ticks_motor_right;
 
 /* Routine Flag Lock */
 volatile bool routine_flag_mutex_lock;
@@ -318,12 +356,18 @@ void setup(){
   #endif
   
   /* Configure all motors related pins as output */
-  pinMode(IN1_MOTOR_LEFT, OUTPUT);
-  pinMode(IN2_MOTOR_LEFT, OUTPUT);
-  pinMode(IN1_MOTOR_RIGHT, OUTPUT);
-  pinMode(IN2_MOTOR_RIGHT, OUTPUT);
-  pinMode(SPEED_MOTOR_LEFT, OUTPUT);
-  pinMode(SPEED_MOTOR_RIGHT, OUTPUT);
+  fastPinMode(IN1_MOTOR_LEFT, OUTPUT);
+  fastPinMode(IN2_MOTOR_LEFT, OUTPUT);
+  fastPinMode(IN1_MOTOR_RIGHT, OUTPUT);
+  fastPinMode(IN2_MOTOR_RIGHT, OUTPUT);
+  fastPinMode(SPEED_MOTOR_LEFT, OUTPUT);
+  fastPinMode(SPEED_MOTOR_RIGHT, OUTPUT);
+
+  /* Configure Interruption pins as INPUT */
+  fastPinMode(ENCODER_LEFT_PIN, INPUT);
+  fastPinMode(ENCODER_RIGHT_PIN, INPUT);
+  digitalWrite(ENCODER_LEFT_PIN, HIGH);
+  digitalWrite(ENCODER_RIGHT_PIN, HIGH);
 
   #ifdef ENABLE_LOG
   /* Configurated all the pins */
@@ -335,8 +379,18 @@ void setup(){
   ir_receiver.enableIRIn();
   #endif
 
+  /* Initialize actual cm/s virtual speed */
+  motor_speed_virtual_cms = 0;
+
   /* Initialize actual pwm motor speed */
   actual_pwm_motor_speed = 0;
+
+  /* Initialize distance wanted by user */
+  distance_wanted = 0;
+  
+  /* Initialize distance rech by each motor */
+  distance_reach_motor_left = 0;
+  distance_reach_motor_right = 0;
 
   /* Initialize step counters */
   steps_motor_left = 0;
@@ -352,6 +406,10 @@ void setup(){
   /* Initialize pwm adjust speed */
   pwm_adjust_motor_left = 0;
   pwm_adjust_motor_right = 0;
+
+  /* Initialize counter of ticks per motor adjust */
+  adjust_ticks_motor_left = 0;
+  adjust_ticks_motor_right = 0;
 
   #ifdef ENABLE_LOG
   /* Initialized all variables */
@@ -404,33 +462,19 @@ void setup(){
   printLogn("Attached the encoder interrupts");
   #endif
   
-  /* Adjust Motors */
-  /* Nice try but don't work as expected */
-  //adjustMotors();
+  /* Start timer to adjust Motors in 1/4s */
+  Timer1.initialize(TIME_0_1S_US);
+  Timer1.attachInterrupt(adjustMotors);
 
   #ifdef ENABLE_LOG
-  /* Start adjust of motors */
-  printLogn("Motors adjusted");
+  /* Start adjust of motors to desired virtual cm/s speed */
+  printLogn("Motors adjust timer started");
   #endif
-
-  Timer1.initialize(TIME_2S_US);
-  Timer1.attachInterrupt(showSpeed);
 
   #ifdef ENABLE_LOG
   /* Print end of setup */
   printMem("\nSystem Started Successfully!\n");
   #endif
-}
-
-void showSpeed(){
-  printLog("Speed Motor left = ");
-  printLogVar(actual_pwm_motor_speed);
-  printMem(" , Adjust = ");
-  printLogVarn(pwm_adjust_motor_left);
-  printLog("Speed Motor right = ");
-  printLogVar(actual_pwm_motor_speed);
-  printMem(" , Adjust = ");
-  printLogVarn(pwm_adjust_motor_right);
 }
 
 /* ::::::::::::::::::: Execute System code ::::::::::::::::::: */
@@ -449,34 +493,24 @@ void loop(){
 
   /* Check obstacles */
   checkObstacles();
-  
-  /* Synchronize motors */
-  syncMotors();
 }
 
 /* :::::::::::::::::::       Helpers       ::::::::::::::::::: */
 
-#define WITH_MORE_CHAOS_MORE_ORDER 5
-#define MAX_CHAOS_ALLOWED 50
-#define MIN_CHAOS_ALLOWED -MAX_CHAOS_ALLOWED
-
 /* Increment counter of the motor left */
 void stepCounterMotorLeft(){
-  steps_motor_left++;
-
-  /* Reset chaos if it's too great */
-  if(pwm_adjust_motor_left > MAX_CHAOS_ALLOWED){
-    pwm_adjust_motor_left = 0;
+  steps_motor_left+= 1;
+  Serial.println("HAHA");
+  adjust_ticks_motor_left++;
+  distance_reach_motor_left++;
+  
+  /* Brake motors if we had reached the distance wanted */
+  if(distance_reach_motor_left >= distance_wanted){
+    brake();
+    zeroDistanceReach();
   }
 
-  /* Adjust motor if it's starting move oposite */
-  if((steps_motor_left - steps_motor_right) > 3){
-    steps_motor_right -= 2;
-    pwm_adjust_motor_left -= (pwm_adjust_motor_left > MIN_CHAOS_ALLOWED) ? (pwm_adjust_motor_left) : WITH_MORE_CHAOS_MORE_ORDER;
-    pwm_adjust_motor_right += (pwm_adjust_motor_right > MAX_CHAOS_ALLOWED) ? (-pwm_adjust_motor_right) : WITH_MORE_CHAOS_MORE_ORDER;
-  }
-
-  /* Increase one rotation if we had completed */
+  /* Increase one rotation if we had completed one */
   if(steps_motor_left == ENCODER_STEPS){
     steps_motor_left = 0;
     rotations_motor_left++;
@@ -486,156 +520,25 @@ void stepCounterMotorLeft(){
 /* Increment counter of the motor right */
 void stepCounterMotorRight(){
   steps_motor_right++;
+  adjust_ticks_motor_right++;
+  distance_reach_motor_right++;
 
-  /* Adjust motor if it's starting move oposite */
-  if((steps_motor_right - steps_motor_left) > 3){
-    steps_motor_left -= 2;
-    pwm_adjust_motor_right -= (pwm_adjust_motor_right > MIN_CHAOS_ALLOWED) ? (pwm_adjust_motor_right) : WITH_MORE_CHAOS_MORE_ORDER;
-    pwm_adjust_motor_left += (pwm_adjust_motor_left > MAX_CHAOS_ALLOWED) ? (-pwm_adjust_motor_left) : WITH_MORE_CHAOS_MORE_ORDER;
+  /* Brake motors if we had reached the distance wanted */
+  if(distance_reach_motor_left >= distance_wanted){
+    brake();
+    zeroDistanceReach();
   }
 
-  /* Increase one rotation if we had completed */
+  /* Increase one rotation if we had completed one */
   if(steps_motor_right == ENCODER_STEPS){
     steps_motor_right = 0;
     rotations_motor_right++;
   }
 }
 
-/* Motor aceleration test routine */
-void acelerationTestRoutine(){
-
-  /* Stop and dettach this routine after execution */
-  Timer1.stop();
-  Timer1.detachInterrupt();
-
-  /* Brake the motor */
-  brake();
-
-  /* Unlock mutex lock */
-  routine_flag_mutex_lock = false;
-}
-
-/* Aceleration Test */
-void acelerationTest(){
-
-  #ifdef LOG_ENABLE
-  /* Doing aceleration test */
-  printLogn("Doing aceleration test");
-  #endif
-
-  /* Clean counters variables */
-  steps_motor_left = 0;
-  rotations_motor_left = 0;
-  steps_motor_right = 0;
-  rotations_motor_right = 0;
-  
-  /* Lock a mutex and acelerate motors with a high speed */
-  routine_flag_mutex_lock = true;
-  turnForward();
-  acelerateMotors(PWM_HIGH_SPEED);
-
-  delay(TIME_1S_MS);
-  
-  /* Reconfigurate timer */
-  Timer1.stop();
-  Timer1.attachInterrupt(acelerationTestRoutine);
-  Timer1.start();
-
-  /* Wait until it finishes the thread */
-  await(routine_flag_mutex_lock);
-}
-
-/* Adjust motors to run in the same speed */
+/* Adjust desired speed to pwm */
 void adjustMotors(){
-
-  /* First initialize Timer1 with a routine of 1 second */
-  Timer1.initialize(TIME_2S_US);
-
-  int motors_steps_difference = 0;
-
-  /* Compute the difference between these two motors, until it finishes */
-  do{
-
-    #ifdef ENABLE_LOG
-    /* Start adjust of motors */
-    printLogn("Adjusting motors...");
-    #endif
-
-    /* Do aceleration test */
-    acelerationTest();
- 
-    /* Total number of steps perfomed by each motor */
-    int motor_left_total_steps = (rotations_motor_left * ENCODER_STEPS) + steps_motor_left;
-    int motor_right_total_steps = (rotations_motor_right * ENCODER_STEPS) + steps_motor_right;
-    
-    /* Check the difference between the two motors */
-    int motors_rotation_difference = abs(rotations_motor_left - rotations_motor_right);
-    motors_steps_difference = abs(motor_left_total_steps - motor_right_total_steps);
-
-    #ifdef ENABLE_LOG
-    /* Start adjust of motors */
-    printLog("Motor left total steps = ");
-    printLogVarn(motor_left_total_steps);
-    printLog("Motor right total steps = ");
-    printLogVarn(motor_right_total_steps);
-    printLog("Motors rotation difference = ");
-    printLogVarn(motors_rotation_difference);
-    printLog("Motors steps difference = ");
-    printLogVarn(motors_steps_difference);
-    printLog("Motors pwm adjust motor left = ");
-    printLogVarn(pwm_adjust_motor_left);
-    printLog("Motors pwm adjust motor right = ");
-    printLogVarn(pwm_adjust_motor_right);
-    #endif
-
-    /* Until the error between the two motors are close enough */
-    if(motors_steps_difference > MAX_STEPS_ERROR){
-      
-      /* Check which motor should be corrected to the other */
-      if(motor_left_total_steps > motor_right_total_steps){
-        /* Adjust strength of motor right */
-        if(pwm_adjust_motor_right < MAX_PWM_INCREMENT){
-          pwm_adjust_motor_right++;
-        }
-        /* Adjust strength of motor left */
-        else if(pwm_adjust_motor_left > MAX_PWM_DECREMENT){
-          pwm_adjust_motor_left--;
-        }
-      }
-      else if(motor_right_total_steps > motor_left_total_steps){
-        /* Adjust strength of motor right */
-        if(pwm_adjust_motor_left < MAX_PWM_INCREMENT){
-          pwm_adjust_motor_left++;
-        }
-        /* Adjust strength of motor left */
-        else if(pwm_adjust_motor_right > MAX_PWM_DECREMENT){
-          pwm_adjust_motor_right--;
-        }
-      }
-    }
-    
-    #ifdef LOG_ENABLE
-    /* Print Check between error allowed and speed */
-    printLog("(motors_steps_difference = ");
-    printLogVar(motors_steps_difference);
-    printMem(") <= (MAX_STEPS_ERROR = ");
-    printLogVar(MAX_STEPS_ERROR);
-    printMemn(")");
-    #endif
-
-    /* Wait 2S to perform new adjustment */
-    delay(TIME_2S_MS);
-    
-  } while(motors_steps_difference > MAX_STEPS_ERROR);
-
-  /* Stop pwm to speed */
-  acelerateMotors(PWM_STOP_SPEED);
-}
-
-/* Synchronize motors */
-void syncMotors(){
-  analogWrite(SPEED_MOTOR_LEFT, actual_pwm_motor_speed + pwm_adjust_motor_left);
-  analogWrite(SPEED_MOTOR_RIGHT, actual_pwm_motor_speed + pwm_adjust_motor_right);
+  // TODO
 }
 
 /* Check Obstacles */
@@ -752,11 +655,21 @@ void executeCommand(long motor_command){
       printLogn("Pressed Brake");
       #endif
       break;
+    case DUMP_COMMAND:
+      #ifdef ENABLE_LOG
+      dumpInfo();
+      #endif
+      break;
     default:
       #ifdef ENABLE_LOG
       printLogn("INVALID COMMAND!");
       printLog("Button Pressed: ");
-      printLogVarn(motor_command);
+      if(motor_command < 255){
+        LOG_OBJECT.print((char)motor_command);
+      }
+      else{
+        printLogVarn(motor_command);
+      }
       #endif
   }
 }
@@ -785,28 +698,263 @@ void acelerateMotor(int motor_num, int pwm_motor_speed){
 void changeMotorState(int motor_num, bool in1_motor_state, bool in2_motor_state){
   switch(motor_num){
     case MOTOR_LEFT:
-      digitalWrite(IN1_MOTOR_LEFT, in1_motor_state);
-      digitalWrite(IN2_MOTOR_LEFT, in2_motor_state);
+      fastDigitalWrite(IN1_MOTOR_LEFT, in1_motor_state);
+      fastDigitalWrite(IN2_MOTOR_LEFT, in2_motor_state);
       break;
     case MOTOR_RIGHT:
       #ifdef MIRROED_MOTORS
-      digitalWrite(IN1_MOTOR_RIGHT, in2_motor_state);
-      digitalWrite(IN2_MOTOR_RIGHT, in1_motor_state);
+      fastDigitalWrite(IN1_MOTOR_RIGHT, in2_motor_state);
+      fastDigitalWrite(IN2_MOTOR_RIGHT, in1_motor_state);
       #else
-      digitalWrite(IN1_MOTOR_RIGHT, in1_motor_state);
-      digitalWrite(IN2_MOTOR_RIGHT, in2_motor_state);
+      fastDigitalWrite(IN1_MOTOR_RIGHT, in1_motor_state);
+      fastDigitalWrite(IN2_MOTOR_RIGHT, in2_motor_state);
       #endif
       break;
     case BOTH_MOTORS:
-      digitalWrite(IN1_MOTOR_LEFT, in1_motor_state);
-      digitalWrite(IN2_MOTOR_LEFT, in2_motor_state);
+      fastDigitalWrite(IN1_MOTOR_LEFT, in1_motor_state);
+      fastDigitalWrite(IN2_MOTOR_LEFT, in2_motor_state);
       #ifdef MIRROED_MOTORS
-      digitalWrite(IN1_MOTOR_RIGHT, in2_motor_state);
-      digitalWrite(IN2_MOTOR_RIGHT, in1_motor_state);
+      fastDigitalWrite(IN1_MOTOR_RIGHT, in2_motor_state);
+      fastDigitalWrite(IN2_MOTOR_RIGHT, in1_motor_state);
       #else
-      digitalWrite(IN1_MOTOR_RIGHT, in1_motor_state);
-      digitalWrite(IN2_MOTOR_RIGHT, in2_motor_state);
+      fastDigitalWrite(IN1_MOTOR_RIGHT, in1_motor_state);
+      fastDigitalWrite(IN2_MOTOR_RIGHT, in2_motor_state);
       #endif
       break;
   }
 }
+
+/* Dump variables in log object */
+#ifdef ENABLE_LOG
+void dumpInfo(){
+  printLogn("Dumping system variables...");
+  printMem("Button State = ");
+  printLogVarn(button_state);
+  printMem("Motor Speed Virtual Cms = ");
+  printLogVarn(motor_speed_virtual_cms);
+  printMem("Actual Pwm Motor Speed = ");
+  printLogVarn(actual_pwm_motor_speed);
+  printMem("Pwm Adjust Motor Left = ");
+  printLogVarn(pwm_adjust_motor_left);
+  printMem("Pwm Adjust Motor Right = ");
+  printLogVarn(pwm_adjust_motor_right);
+  printMem("Actual Rotation = ");
+  printLogVarn(actual_rotation);
+  printMem("Step Angle = ");
+  printLogVarn(step_angle);
+  printMem("Step Length = ");
+  printLogVarn(step_length);
+  printMem("Rotation Length = ");
+  printLogVarn(rotation_length);
+  printMem("Distance Wanted = ");
+  printLogVarn(distance_wanted);
+  printMem("Distance Reach Motor Left = ");
+  printLogVarn(distance_reach_motor_left);
+  printMem("Distance Reach Motor Right = ");
+  printLogVarn(distance_reach_motor_right);
+  printMem("Steps Motor Left = ");
+  printLogVarn(steps_motor_left);
+  printMem("Steps Motor Right = ");
+  printLogVarn(steps_motor_right);
+  printMem("Rotations Motor Left = ");
+  printLogVarn(rotations_motor_left);
+  printMem("Rotations Motor Right = ");
+  printLogVarn(rotations_motor_right);
+  printMem("Adjust Ticks Motor Left = ");
+  printLogVarn(adjust_ticks_motor_left);
+  printMem("Adjust Ticks Motor Right = ");
+  printLogVarn(adjust_ticks_motor_right);
+  printMem("Routine Flag Mutex Lock = ");
+  printLogVarn(routine_flag_mutex_lock);
+}
+#endif
+
+/* ::::::::::::::::::: Obsolete  Functions ::::::::::::::::::: */
+
+/* Just here for history purpose */
+#ifdef USE_OBSOLETE
+
+/* Chaos correction test */
+#define WITH_MORE_CHAOS_MORE_ORDER 5
+#define MAX_CHAOS_ALLOWED 50
+#define MIN_CHAOS_ALLOWED -MAX_CHAOS_ALLOWED
+
+/* Increment counter of the motor left */
+void oldStepCounterMotorLeft(){
+  steps_motor_left++;
+
+  /* Reset chaos if it's too great */
+  if(pwm_adjust_motor_left > MAX_CHAOS_ALLOWED){
+    pwm_adjust_motor_left = 0;
+  }
+
+  /* Adjust motor if it's starting move oposite */
+  if((steps_motor_left - steps_motor_right) > 3){
+    steps_motor_right -= 2;
+    pwm_adjust_motor_left -= (pwm_adjust_motor_left > MIN_CHAOS_ALLOWED) ? (pwm_adjust_motor_left) : WITH_MORE_CHAOS_MORE_ORDER;
+    pwm_adjust_motor_right += (pwm_adjust_motor_right > MAX_CHAOS_ALLOWED) ? (-pwm_adjust_motor_right) : WITH_MORE_CHAOS_MORE_ORDER;
+  }
+
+  /* Increase one rotation if we had completed */
+  if(steps_motor_left == ENCODER_STEPS){
+    steps_motor_left = 0;
+    rotations_motor_left++;
+  }
+}
+
+/* Increment counter of the motor right */
+void oldStepCounterMotorRight(){
+  steps_motor_right++;
+
+  /* Adjust motor if it's starting move oposite */
+  if((steps_motor_right - steps_motor_left) > 3){
+    steps_motor_left -= 2;
+    pwm_adjust_motor_right -= (pwm_adjust_motor_right > MIN_CHAOS_ALLOWED) ? (pwm_adjust_motor_right) : WITH_MORE_CHAOS_MORE_ORDER;
+    pwm_adjust_motor_left += (pwm_adjust_motor_left > MAX_CHAOS_ALLOWED) ? (-pwm_adjust_motor_left) : WITH_MORE_CHAOS_MORE_ORDER;
+  }
+
+  /* Increase one rotation if we had completed */
+  if(steps_motor_right == ENCODER_STEPS){
+    steps_motor_right = 0;
+    rotations_motor_right++;
+  }
+}
+
+/* Motor aceleration test routine */
+void oldAcelerationTestRoutine(){
+
+  /* Stop and dettach this routine after execution */
+  Timer1.stop();
+  Timer1.detachInterrupt();
+
+  /* Brake the motor */
+  brake();
+
+  /* Unlock mutex lock */
+  routine_flag_mutex_lock = false;
+}
+
+/* Aceleration Test */
+void oldAcelerationTest(){
+
+  #ifdef LOG_ENABLE
+  /* Doing aceleration test */
+  printLogn("Doing aceleration test");
+  #endif
+
+  /* Clean counters variables */
+  steps_motor_left = 0;
+  rotations_motor_left = 0;
+  steps_motor_right = 0;
+  rotations_motor_right = 0;
+  
+  /* Lock a mutex and acelerate motors with a high speed */
+  routine_flag_mutex_lock = true;
+  turnForward();
+  acelerateMotors(PWM_HIGH_SPEED);
+
+  delay(TIME_1S_MS);
+  
+  /* Reconfigurate timer */
+  Timer1.stop();
+  Timer1.attachInterrupt(oldAcelerationTestRoutine);
+  Timer1.start();
+
+  /* Wait until it finishes the thread */
+  await(routine_flag_mutex_lock);
+}
+
+/* Adjust motors to run in the same speed */
+void oldAdjustMotors(){
+
+  /* First initialize Timer1 with a routine of 1 second */
+  Timer1.initialize(TIME_2S_US);
+
+  int motors_steps_difference = 0;
+
+  /* Compute the difference between these two motors, until it finishes */
+  do{
+
+    #ifdef ENABLE_LOG
+    /* Start adjust of motors */
+    printLogn("Adjusting motors...");
+    #endif
+
+    /* Do aceleration test */
+    oldAcelerationTest();
+ 
+    /* Total number of steps perfomed by each motor */
+    int motor_left_total_steps = (rotations_motor_left * ENCODER_STEPS) + steps_motor_left;
+    int motor_right_total_steps = (rotations_motor_right * ENCODER_STEPS) + steps_motor_right;
+    
+    /* Check the difference between the two motors */
+    int motors_rotation_difference = abs(rotations_motor_left - rotations_motor_right);
+    motors_steps_difference = abs(motor_left_total_steps - motor_right_total_steps);
+
+    #ifdef ENABLE_LOG
+    /* Start adjust of motors */
+    printLog("Motor left total steps = ");
+    printLogVarn(motor_left_total_steps);
+    printLog("Motor right total steps = ");
+    printLogVarn(motor_right_total_steps);
+    printLog("Motors rotation difference = ");
+    printLogVarn(motors_rotation_difference);
+    printLog("Motors steps difference = ");
+    printLogVarn(motors_steps_difference);
+    printLog("Motors pwm adjust motor left = ");
+    printLogVarn(pwm_adjust_motor_left);
+    printLog("Motors pwm adjust motor right = ");
+    printLogVarn(pwm_adjust_motor_right);
+    #endif
+
+    /* Until the error between the two motors are close enough */
+    if(motors_steps_difference > MAX_STEPS_ERROR){
+      
+      /* Check which motor should be corrected to the other */
+      if(motor_left_total_steps > motor_right_total_steps){
+        /* Adjust strength of motor right */
+        if(pwm_adjust_motor_right < MAX_PWM_INCREMENT){
+          pwm_adjust_motor_right++;
+        }
+        /* Adjust strength of motor left */
+        else if(pwm_adjust_motor_left > MAX_PWM_DECREMENT){
+          pwm_adjust_motor_left--;
+        }
+      }
+      else if(motor_right_total_steps > motor_left_total_steps){
+        /* Adjust strength of motor right */
+        if(pwm_adjust_motor_left < MAX_PWM_INCREMENT){
+          pwm_adjust_motor_left++;
+        }
+        /* Adjust strength of motor left */
+        else if(pwm_adjust_motor_right > MAX_PWM_DECREMENT){
+          pwm_adjust_motor_right--;
+        }
+      }
+    }
+    
+    #ifdef LOG_ENABLE
+    /* Print Check between error allowed and speed */
+    printLog("(motors_steps_difference = ");
+    printLogVar(motors_steps_difference);
+    printMem(") <= (MAX_STEPS_ERROR = ");
+    printLogVar(MAX_STEPS_ERROR);
+    printMemn(")");
+    #endif
+
+    /* Wait 2S to perform new adjustment */
+    delay(TIME_2S_MS);
+    
+  } while(motors_steps_difference > MAX_STEPS_ERROR);
+
+  /* Stop pwm to speed */
+  acelerateMotors(PWM_STOP_SPEED);
+}
+
+/* Synchronize motors */
+void oldSyncMotors(){
+  analogWrite(SPEED_MOTOR_LEFT, actual_pwm_motor_speed + pwm_adjust_motor_left);
+  analogWrite(SPEED_MOTOR_RIGHT, actual_pwm_motor_speed + pwm_adjust_motor_right);
+}
+
+#endif

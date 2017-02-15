@@ -210,7 +210,7 @@
 #define turnReverse()   turnReverseMotor(BOTH_MOTORS)
 
 /* Brake both motors */
-#define brake()         do{ brakeMotor(BOTH_MOTORS); acelerateMotors(PWM_STOP_SPEED) }while(false)
+#define brake()         do{ brakeMotor(BOTH_MOTORS); acelerateMotors(PWM_STOP_SPEED); }while(false)
 
 /* Step Right */
 /* Stop one of the motors and move the other in opossite direction */
@@ -413,10 +413,25 @@ void setup(){
   printLogn("Motors adjusted");
   #endif
 
+  Timer1.initialize(TIME_2S_US);
+  Timer1.attachInterrupt(showSpeed);
+
   #ifdef ENABLE_LOG
   /* Print end of setup */
   printMem("\nSystem Started Successfully!\n");
   #endif
+}
+
+
+void showSpeed(){
+  printLog("Speed Motor left = ");
+  printLogVar(actual_pwm_motor_speed);
+  printMem(" , Adjust = ");
+  printLogVarn(pwm_adjust_motor_left);
+  printLog("Speed Motor right = ");
+  printLogVar(actual_pwm_motor_speed);
+  printMem(" , Adjust = ");
+  printLogVarn(pwm_adjust_motor_right);
 }
 
 /* ::::::::::::::::::: Execute System code ::::::::::::::::::: */

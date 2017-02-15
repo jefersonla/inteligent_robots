@@ -422,7 +422,6 @@ void setup(){
   #endif
 }
 
-
 void showSpeed(){
   printLog("Speed Motor left = ");
   printLogVar(actual_pwm_motor_speed);
@@ -457,14 +456,24 @@ void loop(){
 
 /* :::::::::::::::::::       Helpers       ::::::::::::::::::: */
 
+#define WITH_MORE_CHAOS_MORE_ORDER 5
+#define MAX_CHAOS_ALLOWED 50
+#define MIN_CHAOS_ALLOWED -MAX_CHAOS_ALLOWED
+
 /* Increment counter of the motor left */
 void stepCounterMotorLeft(){
   steps_motor_left++;
 
+  /* Reset chaos if it's too great */
+  if(pwm_adjust_motor_left > MAX_CHAOS_ALLOWED){
+    pwm_adjust_motor_left = 0;
+  }
+
   /* Adjust motor if it's starting move oposite */
-  if((steps_motor_left - steps_motor_right) > 1){
-    pwm_adjust_motor_left--;
-    pwm_adjust_motor_right++;
+  if((steps_motor_left - steps_motor_right) > 3){
+    steps_motor_right -= 2;
+    pwm_adjust_motor_left -= (pwm_adjust_motor_left > MIN_CHAOS_ALLOWED) ? (pwm_adjust_motor_left) : WITH_MORE_CHAOS_MORE_ORDER;
+    pwm_adjust_motor_right += (pwm_adjust_motor_right > MAX_CHAOS_ALLOWED) ? (-pwm_adjust_motor_right) : WITH_MORE_CHAOS_MORE_ORDER;
   }
 
   /* Increase one rotation if we had completed */
@@ -479,9 +488,10 @@ void stepCounterMotorRight(){
   steps_motor_right++;
 
   /* Adjust motor if it's starting move oposite */
-  if((steps_motor_right - steps_motor_left) > 1){
-    pwm_adjust_motor_right--;
-    pwm_adjust_motor_left++;
+  if((steps_motor_right - steps_motor_left) > 3){
+    steps_motor_left -= 2;
+    pwm_adjust_motor_right -= (pwm_adjust_motor_right > MIN_CHAOS_ALLOWED) ? (pwm_adjust_motor_right) : WITH_MORE_CHAOS_MORE_ORDER;
+    pwm_adjust_motor_left += (pwm_adjust_motor_left > MAX_CHAOS_ALLOWED) ? (-pwm_adjust_motor_left) : WITH_MORE_CHAOS_MORE_ORDER;
   }
 
   /* Increase one rotation if we had completed */

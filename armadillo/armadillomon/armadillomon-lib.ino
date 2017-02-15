@@ -48,6 +48,9 @@
 #define ENCODER_LEFT_PIN  2
 #define ENCODER_RIGHT_PIN 3
 
+/* IR Receiver pin */
+#define RECEIVER_PIN      4
+
 /* Speed of each motor */
 /* Change speed of each motor */
 #define SPEED_MOTOR_LEFT  5
@@ -63,12 +66,9 @@
 #define IN1_MOTOR_RIGHT   9
 #define IN2_MOTOR_RIGHT   10
 
-/* IR Receiver pin */
-#define RECEIVER_PIN      11
-
 /* Software Serial Pins */
-#define SOFTWARE_SERIAL_TX_PIN  12
-#define SOFTWARE_SERIAL_RX_PIN  13
+#define SOFTWARE_SERIAL_TX_PIN  11
+#define SOFTWARE_SERIAL_RX_PIN  12
 
 /* Define the pins of the Ultrasonic Sensors */
 #define TRIGGER_PIN       14
@@ -210,7 +210,7 @@
 #define turnReverse()   turnReverseMotor(BOTH_MOTORS)
 
 /* Brake both motors */
-#define brake()         brakeMotor(BOTH_MOTORS)
+#define brake()         do{ brakeMotor(BOTH_MOTORS); acelerateMotors(PWM_STOP_SPEED) }while(false)
 
 /* Step Right */
 /* Stop one of the motors and move the other in opossite direction */
@@ -405,7 +405,8 @@ void setup(){
   #endif
   
   /* Adjust Motors */
-  adjustMotors();
+  /* Nice try but don't work as expected */
+  //adjustMotors();
 
   #ifdef ENABLE_LOG
   /* Start adjust of motors */
@@ -445,6 +446,12 @@ void loop(){
 void stepCounterMotorLeft(){
   steps_motor_left++;
 
+  /* Adjust motor if it's starting move oposite */
+  if((steps_motor_left - steps_motor_right) > 1){
+    pwm_adjust_motor_left--;
+    pwm_adjust_motor_right++;
+  }
+
   /* Increase one rotation if we had completed */
   if(steps_motor_left == ENCODER_STEPS){
     steps_motor_left = 0;
@@ -455,6 +462,12 @@ void stepCounterMotorLeft(){
 /* Increment counter of the motor right */
 void stepCounterMotorRight(){
   steps_motor_right++;
+
+  /* Adjust motor if it's starting move oposite */
+  if((steps_motor_right - steps_motor_left) > 1){
+    pwm_adjust_motor_right--;
+    pwm_adjust_motor_left++;
+  }
 
   /* Increase one rotation if we had completed */
   if(steps_motor_right == ENCODER_STEPS){
@@ -596,7 +609,8 @@ void adjustMotors(){
 
 /* Synchronize motors */
 void syncMotors(){
-  // TODO
+  analogWrite(SPEED_MOTOR_LEFT, actual_pwm_motor_speed + pwm_adjust_motor_left);
+  analogWrite(SPEED_MOTOR_RIGHT, actual_pwm_motor_speed + pwm_adjust_motor_right);
 }
 
 /* Check Obstacles */

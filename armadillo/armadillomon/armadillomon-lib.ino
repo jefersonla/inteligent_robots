@@ -301,7 +301,7 @@ decode_results ir_result;
 #endif
 
 /* Button State */
-long button_state;
+unsigned long button_state;
 
 /* Selected virtual speed in cm/s */
 int motor_speed_virtual_cms;
@@ -620,12 +620,12 @@ void checkObstacles(){
 void readSerialData(){
 
   /* If there are serial incoming data */
-  if(Serial.available()){
+  if(Serial.available() > 0){
     /* Read serial and execute command */
     char serial_data = Serial.read();
 
     /* If we have special commands */
-    if(serial_data == STEP_COMMAND || serial_data == TURN_COMMAND){
+    if((serial_data == STEP_COMMAND || serial_data == TURN_COMMAND)){
       char serial_data2 = Serial.read();
       switch(serial_data2){
         case LEFT_DIRECTION:
@@ -642,8 +642,8 @@ void readSerialData(){
     }
 
     /* Execute the command received */
-    executeCommand((long) serial_data);
-  }  
+    executeCommand((unsigned long) serial_data);
+  }
 }
 
 #ifdef IR_CONTROL_ENABLED
@@ -666,7 +666,7 @@ void readIRSignal(){
 #endif
 
 /* Change Motor State */
-void executeCommand(long motor_command){
+void executeCommand(unsigned long motor_command){
   
   /* Check the command and change the direction state */
   switch(motor_command){
@@ -733,9 +733,10 @@ void executeCommand(long motor_command){
     default:
       #ifdef ENABLE_LOG
       printLogn("INVALID COMMAND!");
-      printLog("Button Pressed: ");
+      printLog("Command Received: ");
       if(motor_command < 255){
         LOG_OBJECT.print((char)motor_command);
+        LOG_OBJECT.print('\n');
       }
       else{
         printLogVarn(motor_command);

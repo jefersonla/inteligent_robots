@@ -587,7 +587,7 @@ void stepCounterMotorRight(){
 
   /* Show that a interruption has occured on lazy debug */
   #if defined(ENABLE_LOG) && defined(LAZY_DEBUG)
-  printDebug("Interruption Ocurred - Left Side - #");
+  printDebug("Interruption Ocurred - Right Side - #");
   printLogVar(rotations_motor_right);
   printMem(" $");
   printLogVarn(steps_motor_right);

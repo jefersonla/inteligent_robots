@@ -10,7 +10,7 @@
     * TimerOne
     * DigitalIO
 
-  To install these libraries open sketch->include library->library manager
+  To install these libraries open Sketch -> Include Library -> Manage Libraries
   select show all, and then search for the libraries, after install it, you
   can use the code.
 
@@ -38,14 +38,14 @@
 /* Enable log on software serial, the default is on main Serial */
 //#define SOFTWARE_SERIAL_LOG
 
+/* Enable display of lazy debug. Please don't use this on normal conditions */
+#define LAZY_DEBUG
+
 /* Enable use of old and deprecated functions */
 //#define USE_OBSOLETE
 
 /* Enable this macro if you have a L298P with mirroed motor outputs */
 #define MIRROED_MOTORS
-
-/* Enable command using Serial */
-#define SERIAL_CONTROL_ENABLED
 
 /***********************/
 
@@ -111,11 +111,11 @@
 #define WHEEL_DISTANCE_MM 100
 
 /* Number of slices of optical encoder */
-/* WARNING: MULTIPLY NUMBER OF SPACES IN ENCODER BY TWO! */
-#define ENCODER_STEPS 40
+/* WARNING: MULTIPLY NUMBER OF SPACES IN ENCODER BY TWO IF INTERRUPTION IS CHANGE! */
+#define ENCODER_STEPS 20
 
 /* Encoder type of interruption */
-#define ENCODER_INTERRUPTION_TYPE CHANGE
+#define ENCODER_INTERRUPTION_TYPE RISING
 
 /* Max number of difference between the speed of the motors */
 #define MAX_STEPS_ERROR 2
@@ -262,6 +262,9 @@
 /* Start of a log */
 #define LOG_LINE_START    "[log] >> "
 
+/* Start of a debug message */
+#define DEBUG_LINE_START  "[debug] >> "
+
 /* Log serial object */
 #ifndef SOFTWARE_SERIAL_LOG
 #define LOG_OBJECT        Serial
@@ -276,6 +279,10 @@ SoftwareSerial            serialLog(SOFTWARE_SERIAL_TX_PIN, SOFTWARE_SERIAL_RX_P
 #define printLogn(MSG)    printLog(MSG "\n")
 #define printLogVar(VAR)  LOG_OBJECT.print(VAR)
 #define printLogVarn(VAR) LOG_OBJECT.println(VAR)
+
+/* Print Debug */
+#define printDebug(MSG)   LOG_OBJECT.print(F(DEBUG_LINE_START MSG))
+#define printDebugn(MSG)  printDebug(MSG "\n")
 
 /* Print Progmem */
 #define printMem(MSG)     LOG_OBJECT.print(F(MSG))
@@ -319,19 +326,19 @@ int step_length;
 int rotation_length;
 
 /* Distance wanted */
-volatile int distance_wanted;
+volatile unsigned int distance_wanted;
 
 /* Distance read by each motor */
-volatile int distance_reach_motor_left;
-volatile int distance_reach_motor_right;
+volatile unsigned int distance_reach_motor_left;
+volatile unsigned int distance_reach_motor_right;
 
 /* Number of steps completed */
-volatile int steps_motor_left;
-volatile int steps_motor_right;
+volatile unsigned short steps_motor_left;
+volatile unsigned short steps_motor_right;
 
 /* Number of rotations completed */
-volatile int rotations_motor_left;
-volatile int rotations_motor_right;
+volatile unsigned long rotations_motor_left;
+volatile unsigned long rotations_motor_right;
 
 /* Number of ticks on each motor, used to tune adjust */
 volatile int adjust_ticks_motor_left;
@@ -350,9 +357,59 @@ void setup(){
 
   #ifdef ENABLE_LOG
   /* Print Hello Message */
-  printMem( "...::: Hi, I'm Armadillomon :) ! :::...\n"
+  printMemn("...::: Hi, I'm Armadillomon :) ! :::...\n"
             "By Jeferson Lima & Andressa Andrade\n"
             "Starting System...\n" );
+  #endif
+
+  /* Print which user configurations are enabled */
+  #ifdef ENABLE_LOG
+  printMemn("Checking user settings:");
+  
+  /* Use of Serial Control */
+  #ifdef SERIAL_CONTROL_ENABLED
+  printMemn("SERIAL_CONTROL = ENABLED");
+  #else
+  printMemn("SERIAL_CONTROL = DISABLED");
+  #endif
+  
+  /* Use of Control by IR */
+  #ifdef IR_CONTROL_ENABLED
+  printMemn("IR_CONTROL = ENABLED");
+  #else
+  printMemn("IR_CONTROL = DISABLED");
+  #endif
+  
+  /* Log on Software Serial */
+  #ifdef SOFTWARE_SERIAL_LOG
+  printMemn("SOFTWARE_SERIAL_LOG = ENABLED");
+  #else
+  printMemn("SOFTWARE_SERIAL_LOG = DISABLED");
+  #endif
+  
+  /* Lazy Debug */
+  #ifdef LAZY_DEBUG
+  printMemn("LAZY_DEBUG = ENABLED");
+  #else
+  printMemn("LAZY_DEBUG = DISABLED");
+  #endif
+  
+  /* Use of obsolete or deprecated functions */
+  #ifdef USE_OBSOLETE
+  printMemn("USE_OBSOLETE = ENABLED");
+  #else
+  printMemn("USE_OBSOLETE = DISABLED");
+  #endif
+  
+  /* Mirroed output motors pins */ 
+  #ifdef MIRROED_MOTORS
+  printMemn("MIRROED_MOTORS = ENABLED");
+  #else
+  printMemn("MIRROED_MOTORS = DISABLED");
+  #endif
+
+  printMemn("");
+    
   #endif
   
   /* Configure all motors related pins as output */
@@ -363,11 +420,9 @@ void setup(){
   fastPinMode(SPEED_MOTOR_LEFT, OUTPUT);
   fastPinMode(SPEED_MOTOR_RIGHT, OUTPUT);
 
-  /* Configure Interruption pins as INPUT */
-  fastPinMode(ENCODER_LEFT_PIN, INPUT);
-  fastPinMode(ENCODER_RIGHT_PIN, INPUT);
-  digitalWrite(ENCODER_LEFT_PIN, HIGH);
-  digitalWrite(ENCODER_RIGHT_PIN, HIGH);
+  /* Configure Interruption pins as INPUT with internal PULLUP ressitors */
+  pinMode(ENCODER_LEFT_PIN, INPUT_PULLUP);
+  pinMode(ENCODER_RIGHT_PIN, INPUT_PULLUP);
 
   #ifdef ENABLE_LOG
   /* Configurated all the pins */
@@ -473,7 +528,7 @@ void setup(){
 
   #ifdef ENABLE_LOG
   /* Print end of setup */
-  printMem("\nSystem Started Successfully!\n");
+  printMemn("\nSystem Started Successfully!\n");
   #endif
 }
 
@@ -499,10 +554,17 @@ void loop(){
 
 /* Increment counter of the motor left */
 void stepCounterMotorLeft(){
-  steps_motor_left+= 1;
-  Serial.println("HAHA");
+  steps_motor_left++;  
   adjust_ticks_motor_left++;
   distance_reach_motor_left++;
+
+  /* Show that a interruption has occured on lazy debug */
+  #if defined(ENABLE_LOG) && defined(LAZY_DEBUG)
+  printDebug("Interruption Ocurred - Left Side - #");
+  printLogVar(rotations_motor_left);
+  printMem(" $");
+  printLogVarn(steps_motor_left);
+  #endif
   
   /* Brake motors if we had reached the distance wanted */
   if(distance_reach_motor_left >= distance_wanted){
@@ -522,6 +584,14 @@ void stepCounterMotorRight(){
   steps_motor_right++;
   adjust_ticks_motor_right++;
   distance_reach_motor_right++;
+
+  /* Show that a interruption has occured on lazy debug */
+  #if defined(ENABLE_LOG) && defined(LAZY_DEBUG)
+  printDebug("Interruption Ocurred - Left Side - #");
+  printLogVar(rotations_motor_right);
+  printMem(" $");
+  printLogVarn(steps_motor_right);
+  #endif
 
   /* Brake motors if we had reached the distance wanted */
   if(distance_reach_motor_left >= distance_wanted){
@@ -837,7 +907,7 @@ void oldAcelerationTestRoutine(){
 /* Aceleration Test */
 void oldAcelerationTest(){
 
-  #ifdef LOG_ENABLE
+  #ifdef ENABLE_LOG
   /* Doing aceleration test */
   printLogn("Doing aceleration test");
   #endif
@@ -933,7 +1003,7 @@ void oldAdjustMotors(){
       }
     }
     
-    #ifdef LOG_ENABLE
+    #ifdef ENABLE_LOG
     /* Print Check between error allowed and speed */
     printLog("(motors_steps_difference = ");
     printLogVar(motors_steps_difference);

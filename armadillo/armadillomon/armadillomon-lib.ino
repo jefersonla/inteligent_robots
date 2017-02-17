@@ -112,10 +112,13 @@
 
 /* Number of slices of optical encoder */
 /* WARNING: MULTIPLY NUMBER OF SPACES IN ENCODER BY TWO IF INTERRUPTION IS CHANGE! */
-#define ENCODER_STEPS 20
+#define ENCODER_STEPS 40
 
 /* Encoder type of interruption */
-#define ENCODER_INTERRUPTION_TYPE RISING
+/* NOTE: USING HIGH/LOW/RISING/FALLING WILL ONLY GIVE ONE INTERRUPTION AT EACH 2 SPACES
+         (ONE CLOSED AND OTHER OPEN, USING CHANGE WILL GIVE YOU ONE INTERRUPTION AT EACH SPACE
+         IMPROVING YOUR PRECISION*/
+#define ENCODER_INTERRUPTION_TYPE CHANGE
 
 /* Max number of difference between the speed of the motors */
 #define MAX_STEPS_ERROR 2
@@ -203,6 +206,8 @@
 
 /* Grid Size */
 #define GRID_SIZE         20
+
+/* PID Configurations */
 
 /* 
  *                   !!!!! WARNING !!!!!
@@ -347,6 +352,16 @@ volatile int adjust_ticks_motor_right;
 /* Routine Flag Lock */
 volatile bool routine_flag_mutex_lock;
 
+/* PID Constants */
+volatile double pid_kp_motor_left;
+volatile double pid_ki_motor_left;
+volatile double pid_kd_motor_left;
+
+/* PID Constants */
+volatile double pid_kp_motor_right;
+volatile double pid_ki_motor_right;
+volatile double pid_kd_motor_right;
+
 /* ::::::::::::::::::: Configure the robot ::::::::::::::::::: */
 
 void setup(){
@@ -465,7 +480,15 @@ void setup(){
   /* Initialize counter of ticks per motor adjust */
   adjust_ticks_motor_left = 0;
   adjust_ticks_motor_right = 0;
-
+  
+  /* Initialize PID Constants */
+  pid_kp_motor_left = 1;
+  pid_ki_motor_left = 0.05;
+  pid_kd_motor_left = 0.25;
+  pid_kp_motor_right = 1;
+  pid_ki_motor_right = 0.05;
+  pid_kd_motor_right = 0.25;
+  
   #ifdef ENABLE_LOG
   /* Initialized all variables */
   printLogn("Initialized all variables");
@@ -641,8 +664,10 @@ void readSerialData(){
       }
     }
 
-    /* Execute the command received */
-    executeCommand((unsigned long) serial_data);
+    /* Execute the command received, if it's not an special character */
+    if(serial_data != '\r' && serial_data != '\n' && serial_data != '\t'){
+      executeCommand((unsigned long) serial_data);
+    }
   }
 }
 
@@ -844,6 +869,9 @@ void dumpInfo(){
 
 /* Just here for history purpose */
 #ifdef USE_OBSOLETE
+
+/* Warning the compiler about use of Deprecated functions */
+#pragma GCC warning "CAUTION! USE OF DEPRECATED FUNCTIONS ENABLED!"
 
 /* Chaos correction test */
 #define WITH_MORE_CHAOS_MORE_ORDER 5
